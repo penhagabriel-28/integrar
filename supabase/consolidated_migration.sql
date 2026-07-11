@@ -518,7 +518,7 @@ BEGIN
 
   RETURN OLD;
 END;
-$$;
+$$ LANGUAGE plpgsql;
 -- Migration to backfill existing confirmed agendamentos into faturas and fatura_itens
 
 DO $$
