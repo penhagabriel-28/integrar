@@ -70,14 +70,14 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Espaço Multi — Sistema de Agendamento" },
+      { title: "Integrar — Sistema de Agendamento" },
       {
         name: "description",
         content:
           "Sistema de agendamento para clínicas infantis especializadas em crianças neurodivergentes.",
       },
-      { property: "og:title", content: "Espaço Multi — Sistema de Agendamento" },
-      { name: "twitter:title", content: "Espaço Multi — Sistema de Agendamento" },
+      { property: "og:title", content: "Integrar — Sistema de Agendamento" },
+      { name: "twitter:title", content: "Integrar — Sistema de Agendamento" },
       {
         property: "og:description",
         content:
@@ -102,15 +102,15 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { property: "og:type", content: "website" },
       {
         name: "description",
-        content: "Espaço Multi displays a preview of your GitHub repository.",
+        content: "Integrar displays a preview of your GitHub repository.",
       },
       {
         property: "og:description",
-        content: "Espaço Multi displays a preview of your GitHub repository.",
+        content: "Integrar displays a preview of your GitHub repository.",
       },
       {
         name: "twitter:description",
-        content: "Espaço Multi displays a preview of your GitHub repository.",
+        content: "Integrar displays a preview of your GitHub repository.",
       },
       {
         property: "og:image",

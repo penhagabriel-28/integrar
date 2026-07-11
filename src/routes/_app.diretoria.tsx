@@ -2388,7 +2388,7 @@ function DiretoriaPageContent() {
         <div class="header-title">
           <div>
             <h1>Relatório Geral da Central de Cobrança</h1>
-            <div style="font-size: 11px; color: #64748b; margin-top: 3px;">Espaço Multi — Gestão Financeira Consolidada</div>
+            <div style="font-size: 11px; color: #64748b; margin-top: 3px;">Integrar — Gestão Financeira Consolidada</div>
           </div>
           <button onclick="window.print()" style="padding: 8px 16px; background: #4f46e5; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Imprimir Relatório / Salvar como PDF</button>
         </div>
@@ -2527,7 +2527,7 @@ function DiretoriaPageContent() {
 
 Nosso pix: 54.747.611/0001-27
 
- Agradecemos a atenção! *Espaço Multi*`;
+ Agradecemos a atenção! *Integrar*`;
 
     const url = `https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(textMsg)}`;
     window.open(url, "_blank");

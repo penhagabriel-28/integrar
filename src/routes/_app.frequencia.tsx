@@ -1231,7 +1231,7 @@ function FrequenciaPage() {
                 <div className="flex items-center justify-between border-b-2 border-black pb-4">
                   <div>
                     <h2 className="text-xl font-bold uppercase tracking-wider text-slate-900">
-                      Espaço MULTI
+                      Integrar
                     </h2>
                     <p className="text-[10px] text-muted-foreground font-semibold">
                       Clínica Multidisciplinar de Desenvolvimento Infantil
@@ -1330,7 +1330,7 @@ function FrequenciaPage() {
                   <div>
                     <div className="border-t border-black w-48 mx-auto mt-4"></div>
                     <p className="font-bold mt-1.5">Assinatura da Direção</p>
-                    <p className="text-gray-500 font-medium">Clínica Espaço MULTI</p>
+                    <p className="text-gray-500 font-medium">Clínica Integrar</p>
                   </div>
                 </div>
               </div>

@@ -1051,7 +1051,7 @@ export function AnamneseFormDialog({
           <div className="hidden print:block w-full p-8 font-sans text-foreground bg-white">
             {/* Header timbrado */}
             <div className="text-center border-b-2 border-primary pb-4 mb-6">
-              <h1 className="text-2xl font-bold tracking-tight text-primary">ESPAÇO MULTI</h1>
+              <h1 className="text-2xl font-bold tracking-tight text-primary">INTEGRAR</h1>
               <p className="text-xs uppercase tracking-widest text-muted-foreground font-semibold mt-1">
                 Psicologia | Fonoaudiologia | Psicopedagogia
               </p>
