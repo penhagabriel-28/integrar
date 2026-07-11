@@ -593,7 +593,7 @@ BEGIN
       SET valor = valor + v_valor
       WHERE id = v_fatura_id;
     END IF;
-  END FOR;
+  END LOOP;
 END $$;
 -- Migration to create the despesas (expenses) table
 
