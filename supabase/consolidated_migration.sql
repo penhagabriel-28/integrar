@@ -160,7 +160,7 @@ CREATE INDEX idx_resp_paciente ON public.responsaveis(paciente_id);
 CREATE TABLE public.agendamentos (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   paciente_id UUID NOT NULL REFERENCES public.pacientes(id) ON DELETE RESTRICT,
-  profissional_id UUID NOT NULL REFERENCES public.profissionais(id) ON DELETE RESTRICT,
+  profissional_id UUID NOT NULL REFERENCES public.profissionais(id) ON DELETE CASCADE,
   servico_id UUID REFERENCES public.servicos(id) ON DELETE SET NULL,
   sala_id UUID REFERENCES public.salas(id) ON DELETE SET NULL,
   data_inicio TIMESTAMPTZ NOT NULL,
