@@ -1,9 +1,21 @@
 -- ============ ENUMS ============
-CREATE TYPE public.app_role AS ENUM ('admin', 'recepcionista', 'profissional');
-CREATE TYPE public.paciente_status AS ENUM ('ativo', 'inativo', 'lista_espera');
-CREATE TYPE public.tipo_atendimento AS ENUM ('particular', 'convenio');
-CREATE TYPE public.agendamento_status AS ENUM ('pendente', 'confirmado', 'cancelado', 'realizado', 'falta');
-CREATE TYPE public.recorrencia_tipo AS ENUM ('unica', 'semanal', 'quinzenal', 'mensal');
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'app_role') THEN
+        CREATE TYPE public.app_role AS ENUM ('admin', 'recepcionista', 'profissional');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'paciente_status') THEN
+        CREATE TYPE public.paciente_status AS ENUM ('ativo', 'inativo', 'lista_espera');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'tipo_atendimento') THEN
+        CREATE TYPE public.tipo_atendimento AS ENUM ('particular', 'convenio');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'agendamento_status') THEN
+        CREATE TYPE public.agendamento_status AS ENUM ('pendente', 'confirmado', 'cancelado', 'realizado', 'falta');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'recorrencia_tipo') THEN
+        CREATE TYPE public.recorrencia_tipo AS ENUM ('unica', 'semanal', 'quinzenal', 'mensal');
+    END IF;
+END $$;
 
 -- ============ PROFILES ============
 CREATE TABLE public.profiles (
@@ -197,8 +209,14 @@ GRANT ALL ON public.bloqueios_agenda TO service_role;
 ALTER TABLE public.bloqueios_agenda ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "auth all bloqueios" ON public.bloqueios_agenda FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
-CREATE TYPE public.fatura_status AS ENUM ('aberta','paga','vencida','cancelada');
-CREATE TYPE public.metodo_pagamento AS ENUM ('pix','dinheiro','cartao_credito','cartao_debito','transferencia','boleto','convenio','outro');
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'fatura_status') THEN
+        CREATE TYPE public.fatura_status AS ENUM ('aberta','paga','vencida','cancelada');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'metodo_pagamento') THEN
+        CREATE TYPE public.metodo_pagamento AS ENUM ('pix','dinheiro','cartao_credito','cartao_debito','transferencia','boleto','convenio','outro');
+    END IF;
+END $$;
 
 CREATE TABLE public.faturas (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
