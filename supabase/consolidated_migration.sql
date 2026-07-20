@@ -385,7 +385,8 @@ CREATE OR REPLACE FUNCTION public.fn_get_especialidade(
   p_servico_id uuid,
   p_paciente_id uuid,
   p_profissional_id uuid
-) RETURNS text AS $$
+) RETURNS text
+LANGUAGE plpgsql AS $$
 DECLARE
   v_servico_nome text;
   v_pac_cids text[];
@@ -426,14 +427,15 @@ BEGIN
 
   RETURN NULL;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 CREATE OR REPLACE FUNCTION public.fn_get_pricing(
   p_paciente_id uuid,
   p_profissional_id uuid,
   p_especialidade text,
   p_tipo_agendamento text
-) RETURNS numeric AS $$
+) RETURNS numeric
+LANGUAGE plpgsql AS $$
 DECLARE
   v_valor_sessao numeric;
   v_valores_config jsonb;
@@ -495,10 +497,11 @@ BEGIN
     RETURN COALESCE(v_valor_sessao, 0);
   END IF;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 CREATE OR REPLACE FUNCTION public.tg_sync_agendamento_financeiro()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql AS $$
 DECLARE
   v_especialidade text;
   v_tipo_agendamento text;
