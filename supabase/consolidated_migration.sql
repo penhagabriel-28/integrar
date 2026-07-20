@@ -97,6 +97,7 @@ CREATE TABLE IF NOT EXISTS public.profissionais (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE public.profissionais ADD COLUMN IF NOT EXISTS valores_config JSONB DEFAULT '{"especialidades": [], "descontos": []}'::jsonb;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.profissionais TO authenticated, anon;
 GRANT ALL ON public.profissionais TO service_role;
 ALTER TABLE public.profissionais ENABLE ROW LEVEL SECURITY;
@@ -156,9 +157,15 @@ CREATE TABLE IF NOT EXISTS public.pacientes (
   foto_url TEXT,
   status public.paciente_status NOT NULL DEFAULT 'ativo',
   valor_mensal NUMERIC(10,2),
+  apoio_frequencia TEXT DEFAULT 'avulso',
+  apoio_valor_personalizado NUMERIC(10,2),
+  cpf TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE public.pacientes ADD COLUMN IF NOT EXISTS apoio_frequencia TEXT DEFAULT 'avulso';
+ALTER TABLE public.pacientes ADD COLUMN IF NOT EXISTS apoio_valor_personalizado NUMERIC(10,2);
+ALTER TABLE public.pacientes ADD COLUMN IF NOT EXISTS cpf TEXT;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.pacientes TO authenticated, anon;
 GRANT ALL ON public.pacientes TO service_role;
 ALTER TABLE public.pacientes ENABLE ROW LEVEL SECURITY;
@@ -209,6 +216,10 @@ CREATE TABLE IF NOT EXISTS public.agendamentos (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE public.agendamentos ADD COLUMN IF NOT EXISTS assinatura_responsavel TEXT;
+ALTER TABLE public.agendamentos ADD COLUMN IF NOT EXISTS nome_assinante TEXT;
+ALTER TABLE public.agendamentos ADD COLUMN IF NOT EXISTS data_assinatura TIMESTAMPTZ;
+ALTER TABLE public.agendamentos ADD COLUMN IF NOT EXISTS plano_aba JSONB;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.agendamentos TO authenticated, anon;
 GRANT ALL ON public.agendamentos TO service_role;
 ALTER TABLE public.agendamentos ENABLE ROW LEVEL SECURITY;
@@ -266,6 +277,8 @@ CREATE TABLE IF NOT EXISTS public.faturas (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE public.faturas ADD COLUMN IF NOT EXISTS profissional_id uuid REFERENCES public.profissionais(id) ON DELETE SET NULL;
+ALTER TABLE public.faturas ADD COLUMN IF NOT EXISTS especialidade text;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.faturas TO authenticated, anon;
 GRANT ALL ON public.faturas TO service_role;
@@ -363,6 +376,9 @@ CREATE TABLE IF NOT EXISTS public.controle_relatorios (
   profissional_id UUID REFERENCES public.profissionais(id) ON DELETE SET NULL,
   tipo_documento_id UUID REFERENCES public.tipos_documento(id) ON DELETE SET NULL,
   responsavel_nome TEXT NOT NULL,
+  responsavel_cpf TEXT,
+  valor_total NUMERIC(10,2),
+  especialidades TEXT,
   data_solicitacao DATE NOT NULL DEFAULT CURRENT_DATE,
   data_limite DATE NOT NULL,
   data_entrega DATE,
@@ -370,6 +386,9 @@ CREATE TABLE IF NOT EXISTS public.controle_relatorios (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE public.controle_relatorios ADD COLUMN IF NOT EXISTS responsavel_cpf TEXT;
+ALTER TABLE public.controle_relatorios ADD COLUMN IF NOT EXISTS valor_total NUMERIC(10,2);
+ALTER TABLE public.controle_relatorios ADD COLUMN IF NOT EXISTS especialidades TEXT;
 
 ALTER TABLE public.controle_relatorios ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "public all controle_relatorios" ON public.controle_relatorios;
