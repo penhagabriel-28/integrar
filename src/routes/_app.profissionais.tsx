@@ -102,7 +102,6 @@ function ProfissionaisPage() {
   const {
     data: agendamentos = [],
     isLoading: loadingAgendamentos,
-    isError: errorAgendamentos,
     refetch: refetchAgendamentos,
   } = useQuery({
     queryKey: ["profissionais-agendamentos", selectedMonth],
@@ -112,7 +111,10 @@ function ProfissionaisPage() {
         .select("id, profissional_id, status")
         .gte("data_inicio", startOfSelectedMonth.toISOString())
         .lte("data_inicio", endOfSelectedMonth.toISOString());
-      if (error) throw error;
+      if (error) {
+        console.error("Erro ao carregar agendamentos:", error);
+        return [];
+      }
       return data ?? [];
     },
   });
@@ -121,6 +123,7 @@ function ProfissionaisPage() {
     data = [],
     isLoading: loadingProfs,
     isError: errorProfs,
+    error: errProfs,
     refetch: refetchProfs,
   } = useQuery({
     queryKey: ["profissionais"],
@@ -138,13 +141,15 @@ function ProfissionaisPage() {
   const {
     data: pacientes = [],
     isLoading: loadingPacientes,
-    isError: errorPacientes,
     refetch: refetchPacientes,
   } = useQuery({
     queryKey: ["pacientes-nomes"],
     queryFn: async () => {
       const { data, error } = await supabase.from("pacientes").select("id, nome");
-      if (error) throw error;
+      if (error) {
+        console.error("Erro ao carregar pacientes:", error);
+        return [];
+      }
       return data ?? [];
     },
   });
@@ -152,7 +157,6 @@ function ProfissionaisPage() {
   const {
     data: pacienteProfissional = [],
     isLoading: loadingPP,
-    isError: errorPP,
     refetch: refetchPP,
   } = useQuery({
     queryKey: ["paciente-profissional"],
@@ -160,13 +164,16 @@ function ProfissionaisPage() {
       const { data, error } = await supabase
         .from("paciente_profissional")
         .select("paciente_id, profissional_id, pacientes(nome)");
-      if (error) throw error;
+      if (error) {
+        console.error("Erro ao carregar paciente_profissional:", error);
+        return [];
+      }
       return data ?? [];
     },
   });
 
   const isLoading = loadingAgendamentos || loadingProfs || loadingPacientes || loadingPP;
-  const isError = errorAgendamentos || errorProfs || errorPacientes || errorPP;
+  const isError = errorProfs;
 
   const handleRetry = () => {
     refetchAgendamentos();
@@ -249,8 +256,8 @@ function ProfissionaisPage() {
             </div>
             <div className="space-y-1">
               <h3 className="font-semibold text-lg text-foreground">Erro ao carregar profissionais</h3>
-              <p className="text-xs text-muted-foreground">
-                Não foi possível carregar os dados dos profissionais do banco de dados. Verifique a sua conexão ou tente novamente.
+              <p className="text-xs text-muted-foreground break-words">
+                {(errProfs as any)?.message || "Não foi possível carregar os dados dos profissionais do banco de dados. Verifique a sua conexão ou tente novamente."}
               </p>
             </div>
             <Button onClick={handleRetry} className="w-full h-9 text-xs">
