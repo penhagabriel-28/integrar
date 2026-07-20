@@ -2,13 +2,12 @@
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "./types";
 
-export const SUPABASE_PROJECT_ID = "peafjcreckbtjuzfcrld";
+export const SUPABASE_PROJECT_ID = "sfkejiqyhqzljoumgjxh";
 
 function createSupabaseClient() {
-  // Forçar o uso do banco de dados correto para evitar variáveis desatualizadas na Vercel/Lovable
-  const SUPABASE_URL = "https://peafjcreckbtjuzfcrld.supabase.co";
+  const SUPABASE_URL = "https://sfkejiqyhqzljoumgjxh.supabase.co";
   const SUPABASE_PUBLISHABLE_KEY =
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBlYWZqY3JlY2tidGp1emZjcmxkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE2OTgxMzMsImV4cCI6MjA5NzI3NDEzM30.U8eXNP3kaPgD0OGOTwmr8ZIVZApb-G8eMXDXksIch_E";
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNma2VqaXF5aHF6bGpvdW1nanhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMzNDI2NzEsImV4cCI6MjA5ODkxODY3MX0.DwoHPPl-k7NNridQ2nJHFhK2mhSCnh_VrqjaEFSDAEg";
 
   if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
     const missing = [

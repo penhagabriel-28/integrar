@@ -177,12 +177,29 @@ function ProfissionaisPage() {
 
   const del = useMutation({
     mutationFn: async (id: string) => {
+      // Excluir agendamentos associados
+      const { error: agendamentosError } = await supabase
+        .from("agendamentos")
+        .delete()
+        .eq("profissional_id", id);
+      if (agendamentosError) throw agendamentosError;
+
+      // Excluir vínculos em paciente_profissional
+      const { error: ppError } = await supabase
+        .from("paciente_profissional")
+        .delete()
+        .eq("profissional_id", id);
+      if (ppError) throw ppError;
+
+      // Excluir profissional
       const { error } = await supabase.from("profissionais").delete().eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
       toast.success("Profissional removido");
       qc.invalidateQueries({ queryKey: ["profissionais"] });
+      qc.invalidateQueries({ queryKey: ["agendamentos"] });
+      qc.invalidateQueries({ queryKey: ["paciente_profissional"] });
     },
     onError: (e: any) => toast.error(e.message),
   });
