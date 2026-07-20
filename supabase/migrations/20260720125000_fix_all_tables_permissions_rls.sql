@@ -1,5 +1,21 @@
--- Safe migration to grant permissions and create RLS policies on tables that exist
+-- Safe migration to grant permissions, ensure missing columns, and create RLS policies on tables that exist
 
+-- 1. Ensure missing columns exist on public tables
+ALTER TABLE public.faturas ADD COLUMN IF NOT EXISTS especialidade TEXT;
+ALTER TABLE public.faturas ADD COLUMN IF NOT EXISTS profissional_id UUID REFERENCES public.profissionais(id) ON DELETE SET NULL;
+
+ALTER TABLE public.profissionais ADD COLUMN IF NOT EXISTS valores_config JSONB DEFAULT '{"especialidades": [], "descontos": []}'::jsonb;
+
+ALTER TABLE public.pacientes ADD COLUMN IF NOT EXISTS apoio_frequencia TEXT DEFAULT 'avulso';
+ALTER TABLE public.pacientes ADD COLUMN IF NOT EXISTS apoio_valor_personalizado NUMERIC(10,2);
+ALTER TABLE public.pacientes ADD COLUMN IF NOT EXISTS cpf TEXT;
+
+ALTER TABLE public.agendamentos ADD COLUMN IF NOT EXISTS assinatura_responsavel TEXT;
+ALTER TABLE public.agendamentos ADD COLUMN IF NOT EXISTS nome_assinante TEXT;
+ALTER TABLE public.agendamentos ADD COLUMN IF NOT EXISTS data_assinatura TIMESTAMPTZ;
+ALTER TABLE public.agendamentos ADD COLUMN IF NOT EXISTS plano_aba JSONB;
+
+-- 2. Grant permissions and enable RLS
 DO $$
 DECLARE
   tbl text;
