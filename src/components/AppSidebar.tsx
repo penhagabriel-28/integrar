@@ -1,5 +1,4 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { SUPABASE_PROJECT_ID } from "@/integrations/supabase/client";
 import {
   LayoutDashboard,
   Calendar,
@@ -14,7 +13,6 @@ import {
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarHeader,
@@ -79,14 +77,6 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter>
-        <div className="px-2 pb-2 group-data-[collapsible=icon]:hidden">
-          <div className="truncate text-xs font-medium text-muted-foreground">Clínica Multi</div>
-          <div className="truncate text-[9px] text-muted-foreground/60 mt-0.5">
-            DB: {SUPABASE_PROJECT_ID}
-          </div>
-        </div>
-      </SidebarFooter>
     </Sidebar>
   );
 }
