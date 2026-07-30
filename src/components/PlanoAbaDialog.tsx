@@ -288,7 +288,13 @@ export function PlanoAbaDialog({
         .order("data_inicio", { ascending: false })
         .limit(1);
 
-      if (error) throw error;
+      if (error) {
+        if (error.message?.includes("plano_aba")) {
+          toast.info("Histórico indisponível (a coluna plano_aba ainda não foi criada no Supabase).");
+          return;
+        }
+        throw error;
+      }
 
       if (data && data.length > 0 && data[0].plano_aba) {
         const prevPlan = data[0].plano_aba as any;

@@ -781,7 +781,12 @@ function RelatoriosPage() {
         .gte("data_inicio", `${abaInicio}T00:00:00`)
         .lte("data_inicio", `${abaFim}T23:59:59`)
         .order("data_inicio", { ascending: true });
-      if (error) throw error;
+      if (error) {
+        if (error.message?.includes("plano_aba")) {
+          return [];
+        }
+        throw error;
+      }
       return data ?? [];
     },
     enabled: !!selectedAbaPacienteId,

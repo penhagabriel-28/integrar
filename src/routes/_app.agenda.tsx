@@ -1351,7 +1351,7 @@ Fico à disposição para qualquer dúvida!`;
           form.sala_id !== (editing.sala_id ?? "");
         void hasOtherFieldsChanged;
 
-        const explicitPayload = {
+        const explicitPayload: any = {
           paciente_id: form.paciente_id,
           profissional_id: form.profissional_id,
           servico_id: matchingServico ? matchingServico.id : null,
@@ -1361,8 +1361,10 @@ Fico à disposição para qualquer dúvida!`;
           recorrencia: form.recorrencia,
           observacoes: finalObservacoes,
           sala_id: form.sala_id || null,
-          plano_aba: form.plano_aba,
         };
+        if (form.plano_aba !== null && form.plano_aba !== undefined) {
+          explicitPayload.plano_aba = form.plano_aba;
+        }
 
         if (updateAllFuture) {
           const { data: futureAgs, error: fetchError } = await supabase
@@ -1420,10 +1422,19 @@ Fico à disposição para qualquer dúvida!`;
             }
           }
         } else {
-          const { error } = await supabase
+          let { error } = await supabase
             .from("agendamentos")
             .update(explicitPayload)
             .eq("id", editing.id);
+
+          if (error && error.message?.includes("plano_aba")) {
+            delete explicitPayload.plano_aba;
+            const retry = await supabase
+              .from("agendamentos")
+              .update(explicitPayload)
+              .eq("id", editing.id);
+            error = retry.error;
+          }
           if (error) throw error;
 
           await syncAgendamentoFinanceiro(
@@ -1488,15 +1499,29 @@ Fico à disposição para qualquer dúvida!`;
               observacoes: finalObservacoes,
               recorrencia_grupo: groupId,
               created_by: user?.id || null,
-              plano_aba: i === 0 ? form.plano_aba : null,
             };
             delete (payload as any).meio_pagamento;
+            if (i === 0 && form.plano_aba !== null && form.plano_aba !== undefined) {
+              payload.plano_aba = form.plano_aba;
+            } else {
+              delete payload.plano_aba;
+            }
             occurrences.push(payload);
           }
-          const { data: insertedAgs, error } = await supabase
+          let { data: insertedAgs, error } = await supabase
             .from("agendamentos")
             .insert(occurrences)
             .select("id, data_inicio, status");
+
+          if (error && error.message?.includes("plano_aba")) {
+            occurrences.forEach((occ) => delete occ.plano_aba);
+            const retry = await supabase
+              .from("agendamentos")
+              .insert(occurrences)
+              .select("id, data_inicio, status");
+            insertedAgs = retry.data;
+            error = retry.error;
+          }
           if (error) throw error;
 
           if (insertedAgs && insertedAgs.length > 0) {
@@ -1525,11 +1550,26 @@ Fico à disposição para qualquer dúvida!`;
             created_by: user?.id || null,
           };
           delete (payload as any).meio_pagamento;
-          const { data: insertedAg, error } = await supabase
+          if (payload.plano_aba === null || payload.plano_aba === undefined) {
+            delete payload.plano_aba;
+          }
+
+          let { data: insertedAg, error } = await supabase
             .from("agendamentos")
             .insert(payload)
             .select("id")
             .single();
+
+          if (error && error.message?.includes("plano_aba")) {
+            delete payload.plano_aba;
+            const retry = await supabase
+              .from("agendamentos")
+              .insert(payload)
+              .select("id")
+              .single();
+            insertedAg = retry.data;
+            error = retry.error;
+          }
           if (error) throw error;
 
           if (insertedAg) {
@@ -2340,7 +2380,13 @@ Fico à disposição para qualquer dúvida!`;
               .from("agendamentos")
               .update({ plano_aba: val })
               .eq("id", editing.id);
-            if (error) throw error;
+            if (error) {
+              if (error.message?.includes("plano_aba")) {
+                toast.error("Não foi possível salvar o Plano ABA no banco porque a coluna 'plano_aba' ainda não foi criada no Supabase.");
+                return;
+              }
+              throw error;
+            }
             await Promise.all([
               qc.invalidateQueries({ queryKey: ["agendamentos"] }),
               qc.invalidateQueries({ queryKey: ["paciente-ags"] }),
