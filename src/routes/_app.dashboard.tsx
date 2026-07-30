@@ -100,7 +100,17 @@ function Dashboard() {
         .eq("ativo", true)
         .order("nome");
       if (error) throw error;
-      return data;
+      const allowed = ["Sala 1", "Sala 2"];
+      const unique = new Map<string, any>();
+      (data ?? []).forEach((s: any) => {
+        const trimmed = s.nome?.trim();
+        if (allowed.includes(trimmed) && !unique.has(trimmed)) {
+          unique.set(trimmed, s);
+        }
+      });
+      return Array.from(unique.values()).sort((a: any, b: any) =>
+        a.nome.localeCompare(b.nome),
+      );
     },
   });
 

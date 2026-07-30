@@ -931,7 +931,7 @@ function AgendamentoDialog({
       ).data ?? [],
     staleTime: 5 * 60 * 1000,
   });
-  const { data: salas = [] } = useQuery({
+  const { data: rawSalas = [] } = useQuery({
     queryKey: ["salas-dialog"],
     queryFn: async () =>
       (
@@ -943,6 +943,24 @@ function AgendamentoDialog({
       ).data ?? [],
     staleTime: 5 * 60 * 1000,
   });
+
+  const salas = useMemo(() => {
+    const allowed = ["Sala 1", "Sala 2"];
+    const unique = new Map<string, any>();
+    (rawSalas ?? []).forEach((s: any) => {
+      const trimmed = s.nome?.trim();
+      if (allowed.includes(trimmed)) {
+        if (!unique.has(trimmed)) {
+          unique.set(trimmed, s);
+        } else if (s.id === form.sala_id) {
+          unique.set(trimmed, s);
+        }
+      }
+    });
+    return Array.from(unique.values()).sort((a: any, b: any) =>
+      a.nome.localeCompare(b.nome),
+    );
+  }, [rawSalas, form.sala_id]);
 
   const { data: patientAgs = [] } = useQuery({
     queryKey: ["patient-ags-dialog", form.paciente_id],
