@@ -102,7 +102,7 @@ function PasswordGate({ onUnlock }: { onUnlock: () => void }) {
     e.preventDefault();
     setVerifying(true);
     try {
-      const expectedPassword = import.meta.env.VITE_DIRETORIA_PASSWORD || "Gabi2020@";
+      const expectedPassword = import.meta.env.VITE_DIRETORIA_PASSWORD || "Leandro123";
       if (password === expectedPassword) {
         onUnlock();
         toast.success("Acesso liberado!");
