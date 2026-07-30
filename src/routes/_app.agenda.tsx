@@ -2320,6 +2320,16 @@ Fico à disposição para qualquer dúvida!`;
                   </div>
                 )}
 
+                <div className="space-y-1.5 animate-in fade-in duration-200">
+                  <Label>Observações</Label>
+                  <Textarea
+                    value={form.observacoes}
+                    onChange={(e) => setForm({ ...form, observacoes: e.target.value })}
+                    placeholder="Digite observações sobre o agendamento..."
+                    className="min-h-[70px] resize-none text-xs"
+                  />
+                </div>
+
                 <DialogFooter className="gap-2 pt-2 border-t mt-4 justify-between flex-wrap">
                   <div className="flex gap-2">
                     {editing && (
@@ -2353,7 +2363,7 @@ Fico à disposição para qualquer dúvida!`;
                         type="button"
                         variant="outline"
                         className="gap-1.5 text-muted-foreground hover:text-destructive"
-                        onClick={() => onCancel(editing)}
+                        onClick={() => onCancel({ ...editing, draftObservacoes: form.observacoes })}
                       >
                         <X className="h-4 w-4" /> Cancelar agendamento
                       </Button>
@@ -2399,7 +2409,16 @@ Fico à disposição para qualquer dúvida!`;
 }
 
 function CancelDialog({ ag, onDone }: any) {
-  const [motivo, setMotivo] = useState("");
+  const initialMotivo =
+    ag?.draftObservacoes !== undefined
+      ? ag.draftObservacoes
+      : ag?.observacoes
+        ? ag.observacoes
+            .replace(/^\[Tipo: (Anamnese|Sessão Padrão)\]\n?/, "")
+            .replace(/\[Meio: (Pix|Espécie)\]\n?/, "")
+            .trim()
+        : "";
+  const [motivo, setMotivo] = useState(initialMotivo);
   const m = useMutation({
     mutationFn: async (cancelAllFuture: boolean) => {
       if (!motivo.trim()) throw new Error("Informe o motivo");
