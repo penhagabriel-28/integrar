@@ -4,7 +4,6 @@ import {
   Calendar,
   Users,
   Stethoscope,
-  Brain,
   DollarSign,
   BarChart3,
   TrendingDown,
@@ -41,9 +40,9 @@ export function AppSidebar() {
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
-        <div className="flex items-center gap-2 px-2 py-3">
-          <div className="grid h-9 w-9 place-items-center rounded-lg bg-primary text-primary-foreground">
-            <Brain className="h-5 w-5" />
+        <div className="flex items-center gap-2.5 px-2 py-3">
+          <div className="grid h-9 w-9 place-items-center rounded-lg bg-white shadow-xs border border-border/40 p-0.5 overflow-hidden">
+            <img src="/logo.png" alt="Integrar Logo" className="h-full w-full object-contain" />
           </div>
           <div className="leading-tight group-data-[collapsible=icon]:hidden">
             <div className="text-sm font-semibold">Integrar</div>
