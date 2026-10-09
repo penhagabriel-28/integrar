@@ -4256,8 +4256,12 @@ function DiretoriaPageContent() {
                 </AlertDialog>
               )}
               {(() => {
-                const c = consolidatedPatients.get(patientFaturasDialog.pacienteId);
-                if (!c || c.totalPendente <= 0) return null;
+                if (!patientFaturasDialog.pacienteId) return null;
+                const patientEntries = consolidatedPatients.filter(
+                  (cp) => cp.pacienteId === patientFaturasDialog.pacienteId
+                );
+                const totalPendente = patientEntries.reduce((acc, curr) => acc + curr.totalPendente, 0);
+                if (totalPendente <= 0) return null;
                 const resps = responsaveisMap.get(patientFaturasDialog.pacienteId) || [];
                 const primaryResp = resps.find((r) => r.whatsapp) || resps.find((r) => r.telefone) || resps[0];
                 if (!primaryResp || (!primaryResp.whatsapp && !primaryResp.telefone)) return null;
@@ -4269,7 +4273,7 @@ function DiretoriaPageContent() {
                     onClick={() =>
                       handleWhatsAppClick(
                         patientFaturasDialog.pacienteId,
-                        c.totalPendente,
+                        totalPendente,
                         patientFaturasDialog.pacienteNome
                       )
                     }

@@ -7,7 +7,8 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
-import { type ReactNode } from "react";
+import { type ReactNode, useState } from "react";
+import { AlertTriangle, Copy, Check, RotateCcw, Home, RefreshCw } from "lucide-react";
 
 import appCss from "../styles.css?url";
 import { AuthProvider } from "@/hooks/useAuth";
@@ -35,29 +36,134 @@ function NotFoundComponent() {
   );
 }
 
-function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
+function ErrorComponent({ error, reset }: { error: any; reset: () => void }) {
   console.error(error);
   const router = useRouter();
+  const [copied, setCopied] = useState(false);
+  const [showStack, setShowStack] = useState(true);
+
+  const errorMessage =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+      ? error
+      : typeof error?.message === "string"
+      ? error.message
+      : JSON.stringify(error, null, 2) || "Erro inesperado desconhecido";
+
+  const errorStack = error instanceof Error ? error.stack : error?.stack ? String(error.stack) : "";
+  const errorName = error instanceof Error ? error.name : error?.name ? String(error.name) : "Erro";
+
+  const fullErrorDetails = `Tipo: ${errorName}\nMensagem: ${errorMessage}${
+    errorStack ? `\n\nRastreamento de Pilha (Stack):\n${errorStack}` : ""
+  }\n\nURL: ${typeof window !== "undefined" ? window.location.href : ""}\nData/Hora: ${new Date().toLocaleString("pt-BR")}`;
+
+  const handleCopy = () => {
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(fullErrorDetails);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    }
+  };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="max-w-md text-center">
-        <h1 className="text-xl font-semibold">Esta página não carregou</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Algo deu errado. Você pode tentar novamente ou voltar ao início.
-        </p>
-        <div className="mt-6 flex justify-center gap-2">
+    <div className="flex min-h-screen items-center justify-center bg-slate-50 dark:bg-slate-950 px-4 py-8 text-foreground">
+      <div className="w-full max-w-2xl rounded-2xl border border-destructive/30 bg-card p-6 shadow-xl space-y-6 sm:p-8">
+        <div className="flex items-start gap-4">
+          <div className="rounded-xl bg-destructive/10 p-3 text-destructive shrink-0">
+            <AlertTriangle className="h-6 w-6" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">
+                Ocorreu um erro nesta página
+              </h1>
+              <span className="rounded bg-destructive/15 px-2 py-0.5 text-xs font-semibold uppercase tracking-wider text-destructive">
+                {errorName}
+              </span>
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">
+              A aplicação encontrou uma falha ao carregar este conteúdo. Os detalhes do erro estão exibidos abaixo:
+            </p>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-destructive/25 bg-destructive/5 p-4 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-medium text-destructive">
+              Mensagem do Erro:
+            </span>
+            <button
+              type="button"
+              onClick={handleCopy}
+              className="inline-flex items-center gap-1.5 rounded-md border bg-background px-2.5 py-1 text-xs font-medium text-foreground shadow-sm hover:bg-muted transition-colors cursor-pointer"
+            >
+              {copied ? (
+                <>
+                  <Check className="h-3.5 w-3.5 text-emerald-600" />
+                  <span className="text-emerald-600">Copiado!</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span>Copiar detalhes</span>
+                </>
+              )}
+            </button>
+          </div>
+          <div className="rounded-lg bg-background/80 p-3 font-mono text-sm font-semibold text-destructive break-words whitespace-pre-wrap border border-destructive/20 select-all">
+            {errorMessage}
+          </div>
+        </div>
+
+        {errorStack && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-muted-foreground">
+                Rastreamento técnico (Stack Trace):
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowStack((prev) => !prev)}
+                className="text-xs font-medium text-primary hover:underline cursor-pointer"
+              >
+                {showStack ? "Ocultar detalhes técnicos" : "Exibir detalhes técnicos"}
+              </button>
+            </div>
+            {showStack && (
+              <pre className="max-h-64 overflow-auto rounded-xl bg-slate-900 p-4 text-xs font-mono leading-relaxed text-slate-100 select-all">
+                {errorStack}
+              </pre>
+            )}
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center gap-3 pt-4 border-t">
           <button
+            type="button"
             onClick={() => {
               router.invalidate();
               reset();
             }}
-            className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm cursor-pointer"
           >
+            <RotateCcw className="h-4 w-4" />
             Tentar novamente
           </button>
-          <a href="/" className="rounded-md border px-4 py-2 text-sm">
-            Início
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="inline-flex items-center gap-2 rounded-lg border bg-background px-4 py-2.5 text-sm font-medium hover:bg-muted transition-colors cursor-pointer"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Recarregar página
+          </button>
+          <a
+            href="/"
+            className="inline-flex items-center gap-2 rounded-lg border bg-background px-4 py-2.5 text-sm font-medium hover:bg-muted transition-colors"
+          >
+            <Home className="h-4 w-4" />
+            Ir para o início
           </a>
         </div>
       </div>
