@@ -15,6 +15,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+  WhatsAppBillingDialog,
+  WhatsAppTemplateConfigDialog,
+} from "@/components/WhatsAppBillingDialog";
+import {
   Dialog,
   DialogContent,
   DialogFooter,
@@ -2521,17 +2525,34 @@ function DiretoriaPageContent() {
       summaryLines.push(`• ${s.count} sessão(ões) de ${s.spec} com ${s.profName}`);
     });
 
-    const summaryText = summaryLines.length > 0 ? "\n\nResumo:\n" + summaryLines.join("\n") : "";
-
-    const textMsg = `Olá, ${primaryResp.nome}! Gostaríamos de lembrar do pagamento referente aos atendimentos de ${mesRef} de *${patientName}* no valor total de *${brl(totalPendente)}*.${summaryText}
-
-Nosso pix: 54.747.611/0001-27
-
- Agradecemos a atenção! *Integrar*`;
-
-    const url = `https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(textMsg)}`;
-    window.open(url, "_blank");
+    setBillingWhatsAppDialog({
+      open: true,
+      pacienteId,
+      pacienteNome: patientName,
+      responsavelNome: primaryResp.nome,
+      responsavelParentesco: primaryResp.parentesco || undefined,
+      telefone: num,
+      totalPendente,
+      mesRef,
+      summaryLines,
+      allResponsibles: resps,
+    });
   };
+
+  // WhatsApp Billing & Template Modals
+  const [billingWhatsAppDialog, setBillingWhatsAppDialog] = useState<{
+    open: boolean;
+    pacienteId: string;
+    pacienteNome: string;
+    responsavelNome: string;
+    responsavelParentesco?: string;
+    telefone: string;
+    totalPendente: number;
+    mesRef: string;
+    summaryLines: string[];
+    allResponsibles: any[];
+  } | null>(null);
+  const [templateConfigDialog, setTemplateConfigDialog] = useState(false);
 
   // Billing Modals
   const [payDialog, setPayDialog] = useState<{ open: boolean; fatura: any }>({
@@ -3217,7 +3238,14 @@ Nosso pix: 54.747.611/0001-27
                   pagamentos.
                 </CardDescription>
               </div>
-              <div className="flex gap-2 self-start sm:self-center">
+              <div className="flex flex-wrap gap-2 self-start sm:self-center">
+                <Button
+                  variant="outline"
+                  onClick={() => setTemplateConfigDialog(true)}
+                  className="gap-1.5 border-emerald-500/30 text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20"
+                >
+                  <MessageCircle className="h-4 w-4 text-emerald-600" /> Modelo WhatsApp
+                </Button>
                 <Button
                   onClick={handlePrintAllBilling}
                   disabled={filteredConsolidated.length === 0}
@@ -4227,6 +4255,29 @@ Nosso pix: 54.747.611/0001-27
                   </AlertDialogContent>
                 </AlertDialog>
               )}
+              {(() => {
+                const c = consolidatedPatients.get(patientFaturasDialog.pacienteId);
+                if (!c || c.totalPendente <= 0) return null;
+                const resps = responsaveisMap.get(patientFaturasDialog.pacienteId) || [];
+                const primaryResp = resps.find((r) => r.whatsapp) || resps.find((r) => r.telefone) || resps[0];
+                if (!primaryResp || (!primaryResp.whatsapp && !primaryResp.telefone)) return null;
+                return (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 font-semibold text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 border-emerald-500/30 cursor-pointer"
+                    onClick={() =>
+                      handleWhatsAppClick(
+                        patientFaturasDialog.pacienteId,
+                        c.totalPendente,
+                        patientFaturasDialog.pacienteNome
+                      )
+                    }
+                  >
+                    <MessageCircle className="h-4 w-4" /> Cobrança no WhatsApp
+                  </Button>
+                );
+              })()}
               <Button
                 size="sm"
                 className="gap-1.5 font-semibold cursor-pointer"
@@ -5032,6 +5083,30 @@ Nosso pix: 54.747.611/0001-27
           )}
         </DialogContent>
       </Dialog>
+
+      {/* WhatsApp Billing Preview & Template Dialogs */}
+      {billingWhatsAppDialog && (
+        <WhatsAppBillingDialog
+          open={billingWhatsAppDialog.open}
+          onOpenChange={(open) =>
+            setBillingWhatsAppDialog(open ? billingWhatsAppDialog : null)
+          }
+          pacienteNome={billingWhatsAppDialog.pacienteNome}
+          responsavelNome={billingWhatsAppDialog.responsavelNome}
+          responsavelParentesco={billingWhatsAppDialog.responsavelParentesco}
+          telefone={billingWhatsAppDialog.telefone}
+          totalPendente={billingWhatsAppDialog.totalPendente}
+          mesRef={billingWhatsAppDialog.mesRef}
+          summaryLines={billingWhatsAppDialog.summaryLines}
+          allResponsibles={billingWhatsAppDialog.allResponsibles}
+          onOpenTemplateConfig={() => setTemplateConfigDialog(true)}
+        />
+      )}
+
+      <WhatsAppTemplateConfigDialog
+        open={templateConfigDialog}
+        onOpenChange={setTemplateConfigDialog}
+      />
     </div>
   );
 }
