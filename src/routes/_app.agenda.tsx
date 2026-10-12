@@ -259,6 +259,34 @@ function Agenda() {
     return result;
   }, [ags, selectedProfs, selectedPacs]);
 
+  const { data: agFaturaMetodos = [] } = useQuery({
+    queryKey: ["ag-fatura-metodos", weekStart.toISOString()],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("fatura_itens")
+        .select("agendamento_id, faturas(metodo)")
+        .not("agendamento_id", "is", null);
+      if (error) {
+        console.warn("Erro ao buscar métodos de fatura:", error);
+        return [];
+      }
+      return data ?? [];
+    },
+    staleTime: 30 * 1000,
+  });
+
+  const agMetodoMap = useMemo(() => {
+    const map = new Map<string, string>();
+    if (Array.isArray(agFaturaMetodos)) {
+      for (const item of agFaturaMetodos as any[]) {
+        if (item.agendamento_id && item.faturas?.metodo) {
+          map.set(item.agendamento_id, item.faturas.metodo);
+        }
+      }
+    }
+    return map;
+  }, [agFaturaMetodos]);
+
   return (
     <div className="space-y-4">
       {(profsPopoverOpen || pacsPopoverOpen) && (
@@ -543,6 +571,7 @@ function Agenda() {
                 h={h}
                 days={days}
                 ags={filteredAgs}
+                agMetodoMap={agMetodoMap}
                 onCellClick={(date: Date) => setDialog({ open: true, defaults: { date, hour: h } })}
                 onEdit={(a: any) => setDialog({ open: true, editing: a })}
               />
@@ -556,11 +585,13 @@ function Agenda() {
           <AgendamentoDialog
             editing={dialog.editing}
             defaults={dialog.defaults}
+            agMetodoMap={agMetodoMap}
             onSaved={async () => {
               await Promise.all([
                 qc.invalidateQueries({ queryKey: ["ags"] }),
                 qc.invalidateQueries({ queryKey: ["patient-ags-dialog"] }),
                 qc.invalidateQueries({ queryKey: ["faturas"] }),
+                qc.invalidateQueries({ queryKey: ["ag-fatura-metodos"] }),
               ]);
               setDialog({ open: false });
             }}
@@ -956,8 +987,26 @@ const syncAgendamentoFinanceiro = async (
   }
 };
 
+export const getAgPaymentMethod = (a: any, agMetodoMap?: Map<string, string>): "Pix" | "Espécie" | null => {
+  if (!a || a.status !== "pago") return null;
+  if (a.observacoes) {
+    const match = a.observacoes.match(/\[Meio:\s*(Pix|Espécie|Especie|Dinheiro)\]/i);
+    if (match) {
+      const m = match[1].toLowerCase();
+      if (m === "espécie" || m === "especie" || m === "dinheiro") return "Espécie";
+      if (m === "pix") return "Pix";
+    }
+  }
+  if (agMetodoMap && a.id && agMetodoMap.has(a.id)) {
+    const raw = agMetodoMap.get(a.id)?.toLowerCase();
+    if (raw === "dinheiro" || raw === "espécie" || raw === "especie") return "Espécie";
+    if (raw === "pix") return "Pix";
+  }
+  return "Pix";
+};
+
 const FragmentRow = memo(
-  function FragmentRow({ h, days, ags, onCellClick, onEdit }: any) {
+  function FragmentRow({ h, days, ags, agMetodoMap, onCellClick, onEdit }: any) {
     return (
       <>
         <div className="border-b border-r p-1 text-right text-xs text-muted-foreground">
@@ -1009,26 +1058,41 @@ const FragmentRow = memo(
                       {getEspecialidade(a)}
                     </div>
                   )}
-                  <Badge
-                    variant="outline"
-                    className={cn(
-                      "mt-1 h-4 px-1 text-[8px] uppercase font-bold shrink-0 border",
-                      a.status === "confirmado" &&
-                        "border-green-500/30 text-green-600 bg-green-50/50",
-                      a.status === "pago" &&
-                        "border-emerald-500/30 text-emerald-600 bg-emerald-50/50",
-                      a.status === "cancelado" &&
-                        "border-red-500/30 text-red-600 bg-red-50/50",
-                      a.status === "realizado" &&
-                        "border-blue-500/30 text-blue-600 bg-blue-50/50",
-                      a.status === "falta" &&
-                        "border-orange-500/30 text-orange-600 bg-orange-50/50",
-                      a.status === "pendente" &&
-                        "border-yellow-500/30 text-yellow-600 bg-yellow-50/50",
+                  <div className="mt-1 flex flex-wrap items-center gap-1">
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        "h-4 px-1 text-[8px] uppercase font-bold shrink-0 border",
+                        a.status === "confirmado" &&
+                          "border-green-500/30 text-green-600 bg-green-50/50",
+                        a.status === "pago" &&
+                          "border-emerald-500/30 text-emerald-600 bg-emerald-50/50",
+                        a.status === "cancelado" &&
+                          "border-red-500/30 text-red-600 bg-red-50/50",
+                        a.status === "realizado" &&
+                          "border-blue-500/30 text-blue-600 bg-blue-50/50",
+                        a.status === "falta" &&
+                          "border-orange-500/30 text-orange-600 bg-orange-50/50",
+                        a.status === "pendente" &&
+                          "border-yellow-500/30 text-yellow-600 bg-yellow-50/50",
+                      )}
+                    >
+                      {STATUS_LABEL[a.status] || a.status}
+                    </Badge>
+                    {a.status === "pago" && (
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "h-4 px-1 text-[8px] uppercase font-bold shrink-0 border",
+                          getAgPaymentMethod(a, agMetodoMap) === "Pix"
+                            ? "border-teal-500/30 text-teal-600 bg-teal-50/50 dark:border-teal-400/30 dark:text-teal-400 dark:bg-teal-950/40"
+                            : "border-amber-500/30 text-amber-600 bg-amber-50/50 dark:border-amber-400/30 dark:text-amber-400 dark:bg-amber-950/40",
+                        )}
+                      >
+                        {getAgPaymentMethod(a, agMetodoMap)}
+                      </Badge>
                     )}
-                  >
-                    {STATUS_LABEL[a.status] || a.status}
-                  </Badge>
+                  </div>
                 </button>
               ))}
             </div>
@@ -1041,7 +1105,8 @@ const FragmentRow = memo(
     return (
       prevProps.h === nextProps.h &&
       prevProps.ags === nextProps.ags &&
-      prevProps.days === nextProps.days
+      prevProps.days === nextProps.days &&
+      prevProps.agMetodoMap === nextProps.agMetodoMap
     );
   }
 );
@@ -1049,6 +1114,7 @@ const FragmentRow = memo(
 function AgendamentoDialog({
   editing,
   defaults,
+  agMetodoMap,
   onSaved,
   onCancel,
   triggerNewPatient,
@@ -1057,6 +1123,7 @@ function AgendamentoDialog({
 }: {
   editing?: any;
   defaults?: any;
+  agMetodoMap?: Map<string, string>;
   onSaved: () => void;
   onCancel: (a: any) => void;
   triggerNewPatient: (
@@ -1084,13 +1151,16 @@ function AgendamentoDialog({
     : "sessao";
   const [tipoAgendamento, setTipoAgendamento] = useState<"sessao" | "anamnese">(initialTipo);
 
-  const paymentMethodMatch = editing?.observacoes?.match(/\[Meio: (Pix|Espécie)\]/);
-  const initialPaymentMethod = paymentMethodMatch ? paymentMethodMatch[1] : "Pix";
+  const paymentMethodMatch = editing?.observacoes?.match(/\[Meio:\s*(Pix|Espécie|Especie|Dinheiro)\]/i);
+  const linkedMethod = editing?.id && agMetodoMap?.get(editing.id);
+  const initialPaymentMethod = paymentMethodMatch
+    ? (paymentMethodMatch[1].toLowerCase().includes("esp") || paymentMethodMatch[1].toLowerCase().includes("din") ? "Espécie" : "Pix")
+    : (linkedMethod && (linkedMethod.toLowerCase().includes("esp") || linkedMethod.toLowerCase().includes("din")) ? "Espécie" : "Pix");
 
   const initialObservacoes = editing?.observacoes
     ? editing.observacoes
         .replace(/^\[Tipo: (Anamnese|Sessão Padrão)\]\n?/, "")
-        .replace(/\[Meio: (Pix|Espécie)\]\n?/, "")
+        .replace(/\[Meio:\s*(Pix|Espécie|Especie|Dinheiro)\]\n?/i, "")
     : "";
 
   const [form, setForm] = useState({
@@ -1581,7 +1651,8 @@ Fico à disposição para qualquer dúvida!`;
             ? "[Tipo: Anamnese]\n"
             : "[Tipo: Sessão Padrão]\n"
           : "";
-      const paymentPrefix = isMensal ? "" : `[Meio: ${form.meio_pagamento}]\n`;
+      const shouldIncludePayment = form.status === "pago" || !isMensal;
+      const paymentPrefix = shouldIncludePayment ? `[Meio: ${form.meio_pagamento || "Pix"}]\n` : "";
       const finalObservacoes = typePrefix + paymentPrefix + form.observacoes;
 
       // Calculate valor for sync
@@ -2045,6 +2116,19 @@ Fico à disposição para qualquer dúvida!`;
                         <Badge variant="secondary" className="h-4 px-1 text-[9px] font-semibold">
                           {STATUS_LABEL[form.status] || form.status || ""}
                         </Badge>
+                        {form.status === "pago" && (
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              "h-4 px-1 text-[9px] uppercase font-bold shrink-0 border",
+                              (form.meio_pagamento || "Pix") === "Pix"
+                                ? "border-teal-500/30 text-teal-600 bg-teal-50/50 dark:border-teal-400/30 dark:text-teal-400 dark:bg-teal-950/40"
+                                : "border-amber-500/30 text-amber-600 bg-amber-50/50 dark:border-amber-400/30 dark:text-amber-400 dark:bg-amber-950/40",
+                            )}
+                          >
+                            {form.meio_pagamento || "Pix"}
+                          </Badge>
+                        )}
                         {whatsappUrl && (
                             <a
                               href={whatsappUrl}
@@ -2128,26 +2212,41 @@ Fico à disposição para qualquer dúvida!`;
                                 </span>
                               </div>
                             </div>
-                            <Badge
-                              variant="outline"
-                              className={cn(
-                                "h-4 px-1 text-[8px] uppercase font-bold shrink-0",
-                                a.status === "confirmado" &&
-                                  "border-green-500/30 text-green-600 bg-green-50/50",
-                                a.status === "pago" &&
-                                  "border-emerald-500/30 text-emerald-600 bg-emerald-50/50",
-                                a.status === "cancelado" &&
-                                  "border-red-500/30 text-red-600 bg-red-50/50",
-                                a.status === "realizado" &&
-                                  "border-blue-500/30 text-blue-600 bg-blue-50/50",
-                                a.status === "falta" &&
-                                  "border-orange-500/30 text-orange-600 bg-orange-50/50",
-                                a.status === "pendente" &&
-                                  "border-yellow-500/30 text-yellow-600 bg-yellow-50/50",
+                            <div className="flex items-center gap-1 shrink-0">
+                              <Badge
+                                variant="outline"
+                                className={cn(
+                                  "h-4 px-1 text-[8px] uppercase font-bold shrink-0",
+                                  a.status === "confirmado" &&
+                                    "border-green-500/30 text-green-600 bg-green-50/50",
+                                  a.status === "pago" &&
+                                    "border-emerald-500/30 text-emerald-600 bg-emerald-50/50",
+                                  a.status === "cancelado" &&
+                                    "border-red-500/30 text-red-600 bg-red-50/50",
+                                  a.status === "realizado" &&
+                                    "border-blue-500/30 text-blue-600 bg-blue-50/50",
+                                  a.status === "falta" &&
+                                    "border-orange-500/30 text-orange-600 bg-orange-50/50",
+                                  a.status === "pendente" &&
+                                    "border-yellow-500/30 text-yellow-600 bg-yellow-50/50",
+                                )}
+                              >
+                                {STATUS_LABEL[a.status] || a.status || ""}
+                              </Badge>
+                              {a.status === "pago" && (
+                                <Badge
+                                  variant="outline"
+                                  className={cn(
+                                    "h-4 px-1 text-[8px] uppercase font-bold shrink-0 border",
+                                    getAgPaymentMethod(a, agMetodoMap) === "Pix"
+                                      ? "border-teal-500/30 text-teal-600 bg-teal-50/50 dark:border-teal-400/30 dark:text-teal-400 dark:bg-teal-950/40"
+                                      : "border-amber-500/30 text-amber-600 bg-amber-50/50 dark:border-amber-400/30 dark:text-amber-400 dark:bg-amber-950/40",
+                                  )}
+                                >
+                                  {getAgPaymentMethod(a, agMetodoMap)}
+                                </Badge>
                               )}
-                            >
-                              {STATUS_LABEL[a.status] || a.status || ""}
-                            </Badge>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -2567,11 +2666,11 @@ Fico à disposição para qualquer dúvida!`;
                   )}
                 </div>
 
-                {!isMensal && (
+                {(form.status === "pago" || !isMensal) && (
                   <div className="space-y-1.5 animate-in fade-in duration-200">
                     <Label>Meio de pagamento realizado na sessão</Label>
                     <Select
-                      value={form.meio_pagamento}
+                      value={form.meio_pagamento || "Pix"}
                       onValueChange={(v) => setForm({ ...form, meio_pagamento: v })}
                     >
                       <SelectTrigger>
@@ -2680,7 +2779,7 @@ function CancelDialog({ ag, onDone }: any) {
       : ag?.observacoes
         ? ag.observacoes
             .replace(/^\[Tipo: (Anamnese|Sessão Padrão)\]\n?/, "")
-            .replace(/\[Meio: (Pix|Espécie)\]\n?/, "")
+            .replace(/\[Meio:\s*(Pix|Espécie|Especie|Dinheiro)\]\n?/i, "")
             .trim()
         : "";
   const [motivo, setMotivo] = useState(initialMotivo);
