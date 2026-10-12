@@ -18,6 +18,13 @@ import {
   WhatsAppBillingDialog,
   WhatsAppTemplateConfigDialog,
 } from "@/components/WhatsAppBillingDialog";
+
+const NOTA_FISCAL_PATIENT_IDS = new Set([
+  "d962c381-6d62-4697-9917-a09d08fad38d", // Aldelina Menezes Mendes
+  "8c39fa05-9f6a-4179-8b2d-db3b8b27b31f", // Ethan nobre
+  "ea6af389-e92e-40eb-9179-42701790fd53", // Aquiles
+  "9500c2d6-c939-4a71-bcd8-b2c778641497", // Isadora Sampaio
+]);
 import {
   Dialog,
   DialogContent,
@@ -1204,6 +1211,8 @@ function DiretoriaPageContent() {
 
     const config = prof.valores_config || { especialidades: [], descontos: [] };
     const valorDefault = Number(prof.valor_sessao || 0);
+    const isNotaFiscal = NOTA_FISCAL_PATIENT_IDS.has(a.paciente_id);
+    const applyNfRate = (v: number) => isNotaFiscal ? Math.round(v * 1.1) : v;
 
     // 1. Check custom patient discount
     if (Array.isArray(config.descontos) && config.descontos.length > 0) {
@@ -1224,10 +1233,10 @@ function DiretoriaPageContent() {
       );
       if (e) {
         if (isAnamnese) {
-          return Number(e.valor_avaliacao || 0);
+          return applyNfRate(Number(e.valor_avaliacao || 0));
         } else {
           if (String(spec).toLowerCase() === "ap") return 0;
-          return Number(e.valor_sessao ?? valorDefault ?? 0);
+          return applyNfRate(Number(e.valor_sessao ?? valorDefault ?? 0));
         }
       }
     }
@@ -1236,7 +1245,7 @@ function DiretoriaPageContent() {
     if (isAnamnese) {
       return 0;
     } else {
-      return valorDefault;
+      return applyNfRate(valorDefault);
     }
   };
 
@@ -2658,6 +2667,8 @@ function DiretoriaPageContent() {
 
     const config = prof.valores_config || { especialidades: [], descontos: [] };
     const valorDefault = Number(prof.valor_sessao || 0);
+    const isNotaFiscal = NOTA_FISCAL_PATIENT_IDS.has(pacienteId);
+    const applyNfRate = (v: number) => isNotaFiscal ? Math.round(v * 1.1) : v;
 
     // 1. Check custom patient discount
     if (Array.isArray(config.descontos) && config.descontos.length > 0) {
@@ -2678,10 +2689,10 @@ function DiretoriaPageContent() {
       );
       if (e) {
         if (isAnamnese) {
-          return Number(e.valor_avaliacao || 0);
+          return applyNfRate(Number(e.valor_avaliacao || 0));
         } else {
           if (String(especialidade).toLowerCase() === "ap") return 0;
-          return Number(e.valor_sessao ?? valorDefault ?? 0);
+          return applyNfRate(Number(e.valor_sessao ?? valorDefault ?? 0));
         }
       }
     }
@@ -2690,7 +2701,7 @@ function DiretoriaPageContent() {
     if (isAnamnese) {
       return 0;
     } else {
-      return valorDefault;
+      return applyNfRate(valorDefault);
     }
   };
 

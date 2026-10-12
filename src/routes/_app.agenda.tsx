@@ -717,6 +717,13 @@ const getEspecialidade = (a: any) => {
   return null;
 };
 
+export const NOTA_FISCAL_PATIENT_IDS = new Set([
+  "d962c381-6d62-4697-9917-a09d08fad38d", // Aldelina Menezes Mendes
+  "8c39fa05-9f6a-4179-8b2d-db3b8b27b31f", // Ethan nobre
+  "ea6af389-e92e-40eb-9179-42701790fd53", // Aquiles
+  "9500c2d6-c939-4a71-bcd8-b2c778641497", // Isadora Sampaio
+]);
+
 const syncAgendamentoFinanceiro = async (
   agendamentoId: string,
   pacienteId: string,
@@ -760,7 +767,7 @@ const syncAgendamentoFinanceiro = async (
       sessionVal = Number(existingItem.total) || 0;
     }
     if (sessionVal <= 0) {
-      sessionVal = 100;
+      sessionVal = NOTA_FISCAL_PATIENT_IDS.has(pacienteId) ? 110 : 100;
     }
 
     if (status === "pago") {
@@ -1391,6 +1398,12 @@ Fico à disposição para qualquer dúvida!`;
 
     const config = (prof.valores_config as any) || { especialidades: [], descontos: [] };
 
+    const isNotaFiscal = NOTA_FISCAL_PATIENT_IDS.has(form.paciente_id);
+    const applyNfRate = (v: number | null | undefined) => {
+      if (v === null || v === undefined) return v;
+      return isNotaFiscal ? Math.round(Number(v) * 1.1) : v;
+    };
+
     // Check custom patient discount
     const discount = Array.isArray(config.descontos)
       ? config.descontos.find(
@@ -1403,7 +1416,7 @@ Fico à disposição para qualquer dúvida!`;
 
     if (discount) {
       return {
-        type: "Paciente (Desconto)",
+        type: isNotaFiscal ? "Paciente (Nota Fiscal 10%)" : "Paciente (Desconto)",
         valor_sessao: discount.valor_sessao,
         valor_avaliacao: discount.valor_avaliacao,
       };
@@ -1417,19 +1430,19 @@ Fico à disposição para qualquer dúvida!`;
         )
       : null;
     if (specConfig) {
+      const baseSessao = specialtyUpper === "AP" ? null : (specConfig.valor_sessao ?? prof.valor_sessao);
       return {
-        type: "Padrão Especialidade",
-        valor_sessao:
-          specialtyUpper === "AP" ? null : (specConfig.valor_sessao ?? prof.valor_sessao),
-        valor_avaliacao: specConfig.valor_avaliacao,
+        type: isNotaFiscal ? "Padrão Especialidade (+10% NF)" : "Padrão Especialidade",
+        valor_sessao: applyNfRate(baseSessao),
+        valor_avaliacao: applyNfRate(specConfig.valor_avaliacao),
         plano_mensal: specConfig.plano_mensal,
       };
     }
 
     // Default professional rate
     return {
-      type: "Padrão Profissional",
-      valor_sessao: prof.valor_sessao,
+      type: isNotaFiscal ? "Padrão Profissional (+10% NF)" : "Padrão Profissional",
+      valor_sessao: applyNfRate(prof.valor_sessao),
       valor_avaliacao: null,
     };
   }, [form.profissional_id, form.paciente_id, selectedSpecialty, profissionais, specialtyUpper]);
