@@ -40,7 +40,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { PlanoAbaDialog } from "@/components/PlanoAbaDialog";
-import { addDays, addWeeks, endOfWeek, format, isSameDay, startOfWeek } from "date-fns";
+import { addDays, addWeeks, endOfWeek, format, isSameDay, startOfWeek, startOfMonth } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -85,6 +85,17 @@ function Agenda() {
           event: "*",
           schema: "public",
           table: "agendamentos",
+        },
+        () => {
+          qc.invalidateQueries({ queryKey: ["ags"] });
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "faturas",
         },
         () => {
           qc.invalidateQueries({ queryKey: ["ags"] });
@@ -707,20 +718,235 @@ const getEspecialidade = (a: any) => {
 };
 
 const syncAgendamentoFinanceiro = async (
-  _agendamentoId: string,
-  _pacienteId: string,
-  _profissionalId: string,
-  _dataInicio: string,
-  _status: string,
-  _tipoAgendamento: "sessao" | "anamnese",
-  _especialidade: string,
-  _valor: number,
-  _meioPagamento?: string,
+  agendamentoId: string,
+  pacienteId: string,
+  profissionalId: string,
+  dataInicio: string,
+  status: string,
+  tipoAgendamento: "sessao" | "anamnese",
+  especialidade: string,
+  valor: number,
+  meioPagamento?: string,
 ) => {
-  // O banco de dados (através do trigger tg_sync_agendamento_financeiro) gerencia
-  // todo o sincronismo e cálculo de faturas/itens de forma atômica e consistente.
-  // Retornamos imediatamente para evitar race conditions ou sobrescrever valores customizados.
-  return;
+  if (!agendamentoId || !pacienteId) return;
+
+  try {
+    const d = new Date(dataInicio);
+    const compDate = format(startOfMonth(d), "yyyy-MM-dd");
+    const payDate = d.toISOString();
+    const dataStr = safeFormatDate(dataInicio, "dd/MM/yyyy HH:mm");
+    const description =
+      tipoAgendamento === "anamnese"
+        ? `${especialidade || "Avaliação"} (Avaliação) - ${dataStr}`
+        : `${especialidade || "Sessão"} - ${dataStr}`;
+
+    const isDinheiro =
+      meioPagamento &&
+      (meioPagamento.toLowerCase().includes("dinheiro") ||
+        meioPagamento.toLowerCase().includes("espécie") ||
+        meioPagamento.toLowerCase().includes("especie"));
+    const metodo = isDinheiro ? "dinheiro" : "pix";
+
+    // 1. Check existing fatura_itens for this agendamento
+    const { data: existingItems } = await supabase
+      .from("fatura_itens")
+      .select("id, fatura_id, valor_unitario, total")
+      .eq("agendamento_id", agendamentoId);
+
+    const existingItem = existingItems?.[0];
+
+    let sessionVal = Number(valor) || 0;
+    if (sessionVal <= 0 && existingItem?.total) {
+      sessionVal = Number(existingItem.total) || 0;
+    }
+    if (sessionVal <= 0) {
+      sessionVal = 100;
+    }
+
+    if (status === "pago") {
+      if (existingItem) {
+        const oldFatId = existingItem.fatura_id;
+        const { data: siblings } = await supabase
+          .from("fatura_itens")
+          .select("id, total")
+          .eq("fatura_id", oldFatId);
+
+        const siblingCount = siblings?.length || 0;
+
+        if (siblingCount <= 1) {
+          // Dedicated invoice to this session: mark it paid directly!
+          await supabase
+            .from("faturas")
+            .update({
+              status: "paga",
+              pago_em: payDate,
+              metodo: metodo as any,
+              valor: sessionVal,
+              especialidade: especialidade || null,
+              profissional_id: profissionalId || null,
+            })
+            .eq("id", oldFatId);
+
+          await supabase
+            .from("fatura_itens")
+            .update({
+              descricao: description,
+              valor_unitario: sessionVal,
+              total: sessionVal,
+            })
+            .eq("id", existingItem.id);
+        } else {
+          // Invoice has multiple sessions! Detach this paid session to a dedicated paid invoice
+          const { data: newFat, error: newFatErr } = await supabase
+            .from("faturas")
+            .insert({
+              paciente_id: pacienteId,
+              competencia: compDate,
+              status: "paga",
+              pago_em: payDate,
+              metodo: metodo as any,
+              valor: sessionVal,
+              especialidade: especialidade || null,
+              profissional_id: profissionalId || null,
+            })
+            .select()
+            .single();
+
+          if (!newFatErr && newFat) {
+            await supabase
+              .from("fatura_itens")
+              .update({
+                fatura_id: newFat.id,
+                descricao: description,
+                valor_unitario: sessionVal,
+                total: sessionVal,
+              })
+              .eq("id", existingItem.id);
+
+            const remainingSum = (siblings || [])
+              .filter((s) => s.id !== existingItem.id)
+              .reduce((acc, s) => acc + (Number(s.total) || 0), 0);
+
+            await supabase
+              .from("faturas")
+              .update({ valor: remainingSum })
+              .eq("id", oldFatId);
+          }
+        }
+      } else {
+        // No item exists yet: create paid invoice and item
+        const { data: newFat, error: newFatErr } = await supabase
+          .from("faturas")
+          .insert({
+            paciente_id: pacienteId,
+            competencia: compDate,
+            status: "paga",
+            pago_em: payDate,
+            metodo: metodo as any,
+            valor: sessionVal,
+            especialidade: especialidade || null,
+            profissional_id: profissionalId || null,
+          })
+          .select()
+          .single();
+
+        if (!newFatErr && newFat) {
+          await supabase.from("fatura_itens").insert({
+            fatura_id: newFat.id,
+            agendamento_id: agendamentoId,
+            descricao: description,
+            quantidade: 1,
+            valor_unitario: sessionVal,
+            total: sessionVal,
+          });
+        }
+      }
+    } else if (status === "realizado" || status === "falta") {
+      // Completed / Missed: billable, but open (not paid)
+      if (existingItem) {
+        const oldFatId = existingItem.fatura_id;
+        const { data: oldFat } = await supabase
+          .from("faturas")
+          .select("id, status")
+          .eq("id", oldFatId)
+          .single();
+
+        if (oldFat?.status === "paga") {
+          await supabase
+            .from("faturas")
+            .update({
+              status: "aberta",
+              pago_em: null,
+              metodo: null,
+              valor: sessionVal,
+            })
+            .eq("id", oldFatId);
+        }
+
+        await supabase
+          .from("fatura_itens")
+          .update({
+            descricao: description,
+            valor_unitario: sessionVal,
+            total: sessionVal,
+          })
+          .eq("id", existingItem.id);
+      } else {
+        const { data: newFat, error: newFatErr } = await supabase
+          .from("faturas")
+          .insert({
+            paciente_id: pacienteId,
+            competencia: compDate,
+            status: "aberta",
+            valor: sessionVal,
+            especialidade: especialidade || null,
+            profissional_id: profissionalId || null,
+          })
+          .select()
+          .single();
+
+        if (!newFatErr && newFat) {
+          await supabase.from("fatura_itens").insert({
+            fatura_id: newFat.id,
+            agendamento_id: agendamentoId,
+            descricao: description,
+            quantidade: 1,
+            valor_unitario: sessionVal,
+            total: sessionVal,
+          });
+        }
+      }
+    } else if (status === "cancelado" || status === "pendente" || status === "confirmado") {
+      if (existingItem) {
+        const oldFatId = existingItem.fatura_id;
+        await supabase.from("fatura_itens").delete().eq("id", existingItem.id);
+
+        const { data: remaining } = await supabase
+          .from("fatura_itens")
+          .select("id, total")
+          .eq("fatura_id", oldFatId);
+
+        if (!remaining || remaining.length === 0) {
+          const { data: fatInfo } = await supabase
+            .from("faturas")
+            .select("observacoes")
+            .eq("id", oldFatId)
+            .single();
+
+          if (!fatInfo?.observacoes) {
+            await supabase.from("faturas").delete().eq("id", oldFatId);
+          } else {
+            await supabase.from("faturas").update({ valor: 0 }).eq("id", oldFatId);
+          }
+        } else {
+          const remSum = remaining.reduce((acc, r) => acc + (Number(r.total) || 0), 0);
+          await supabase.from("faturas").update({ valor: remSum }).eq("id", oldFatId);
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Erro ao sincronizar agendamento financeiro:", err);
+  }
 };
 
 const FragmentRow = memo(
@@ -1608,6 +1834,10 @@ Fico à disposição para qualquer dúvida!`;
     },
     onSuccess: () => {
       toast.success(editing ? "Agendamento atualizado" : "Agendamento criado");
+      qc.invalidateQueries({ queryKey: ["ags"] });
+      qc.invalidateQueries({ queryKey: ["dir-faturas"] });
+      qc.invalidateQueries({ queryKey: ["dir-fatura-itens"] });
+      qc.invalidateQueries({ queryKey: ["dir-linked-agendamentos"] });
       onSaved();
     },
     onError: (e: any) => e.message !== "Cancelado pelo usuário" && toast.error(e.message),
@@ -1667,6 +1897,10 @@ Fico à disposição para qualquer dúvida!`;
     },
     onSuccess: () => {
       toast.success("Agendamento excluído com sucesso");
+      qc.invalidateQueries({ queryKey: ["ags"] });
+      qc.invalidateQueries({ queryKey: ["dir-faturas"] });
+      qc.invalidateQueries({ queryKey: ["dir-fatura-itens"] });
+      qc.invalidateQueries({ queryKey: ["dir-linked-agendamentos"] });
       onSaved();
     },
     onError: (e: any) => toast.error(e.message),
@@ -2437,6 +2671,7 @@ function CancelDialog({ ag, onDone }: any) {
             .trim()
         : "";
   const [motivo, setMotivo] = useState(initialMotivo);
+  const qc = useQueryClient();
   const m = useMutation({
     mutationFn: async (cancelAllFuture: boolean) => {
       if (!motivo.trim()) throw new Error("Informe o motivo");
@@ -2495,6 +2730,10 @@ function CancelDialog({ ag, onDone }: any) {
     },
     onSuccess: () => {
       toast.success("Agendamento cancelado");
+      qc.invalidateQueries({ queryKey: ["ags"] });
+      qc.invalidateQueries({ queryKey: ["dir-faturas"] });
+      qc.invalidateQueries({ queryKey: ["dir-fatura-itens"] });
+      qc.invalidateQueries({ queryKey: ["dir-linked-agendamentos"] });
       onDone();
     },
     onError: (e: any) => toast.error(e.message),

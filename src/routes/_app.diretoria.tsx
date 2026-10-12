@@ -192,6 +192,15 @@ function DiretoriaPageContent() {
       )
       .on(
         "postgres_changes",
+        { event: "*", schema: "public", table: "agendamentos" },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ["dir-faturas"] });
+          queryClient.invalidateQueries({ queryKey: ["dir-fatura-itens"] });
+          queryClient.invalidateQueries({ queryKey: ["dir-linked-agendamentos"] });
+        }
+      )
+      .on(
+        "postgres_changes",
         { event: "*", schema: "public", table: "pacientes" },
         () => {
           queryClient.invalidateQueries({ queryKey: ["dir-pacientes-min"] });
@@ -352,9 +361,25 @@ function DiretoriaPageContent() {
         })
         .eq("id", id);
       if (error) throw error;
+
+      // Update linked agendamentos to 'pago' to keep agenda in sync
+      const { data: linkedItems } = await supabase
+        .from("fatura_itens")
+        .select("agendamento_id")
+        .eq("fatura_id", id);
+      const agIds = (linkedItems || []).map((it: any) => it.agendamento_id).filter(Boolean);
+      if (agIds.length > 0) {
+        await supabase
+          .from("agendamentos")
+          .update({ status: "pago" })
+          .in("id", agIds);
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["dir-faturas"] });
+      queryClient.invalidateQueries({ queryKey: ["dir-fatura-itens"] });
+      queryClient.invalidateQueries({ queryKey: ["dir-linked-agendamentos"] });
+      queryClient.invalidateQueries({ queryKey: ["ags"] });
       toast.success("Pagamento confirmado com sucesso!");
     },
     onError: (err: any) => {
@@ -733,49 +758,7 @@ function DiretoriaPageContent() {
     },
   });
 
-  // Calculations
-  const stats = useMemo(() => {
-    // Faturamento Recebido (Pagas)
-    const faturamentoRecebido = (faturas || [])
-      .filter((f) => f.status === "paga")
-      .reduce((acc, f) => acc + Number(f.valor), 0);
 
-    // Faturamento A Receber (Abertas)
-    const faturamentoAReceber = (faturas || [])
-      .filter((f) => f.status === "aberta")
-      .reduce((acc, f) => acc + Number(f.valor), 0);
-
-    // Faturamento Vencido (Vencidas)
-    const faturamentoVencido = (faturas || [])
-      .filter((f) => f.status === "vencida")
-      .reduce((acc, f) => acc + Number(f.valor), 0);
-
-    // Faturamento Pendente (Abertas/Vencidas)
-    const faturamentoPendente = faturamentoAReceber + faturamentoVencido;
-
-    // Faturamento Geral (Total Faturas)
-    const faturamentoTotal = (faturas || [])
-      .filter((f) => f.status !== "cancelada")
-      .reduce((acc, f) => acc + Number(f.valor), 0);
-
-    // Despesas
-    const totalDespesas = despesas.reduce((acc, d) => acc + Number(d.valor), 0);
-
-    // Balanços
-    const balancoReal = faturamentoRecebido - totalDespesas;
-    const balancoEstimado = faturamentoTotal - totalDespesas;
-
-    return {
-      faturamentoRecebido,
-      faturamentoAReceber,
-      faturamentoVencido,
-      faturamentoPendente,
-      faturamentoTotal,
-      totalDespesas,
-      balancoReal,
-      balancoEstimado,
-    };
-  }, [faturas, despesas]);
 
   function brl(n: number) {
     return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -1801,31 +1784,6 @@ function DiretoriaPageContent() {
     };
   }, [consolidatedRepasses]);
 
-  const caixaLiquidoReal =
-    stats.faturamentoRecebido - repasseStats.repasseApto - stats.totalDespesas;
-  const caixaLiquidoPrevisto =
-    stats.faturamentoTotal - repasseStats.repasseProfissional - stats.totalDespesas;
-
-  // Billing Filters
-  const [searchPatient, setSearchPatient] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [profFilter, setProfFilter] = useState("all");
-  const [paymentTypeFilter, setPaymentTypeFilter] = useState<"all" | "mensal" | "sessao">("all");
-  const [subTab, setSubTab] = useState<"consolidado" | "historico">("consolidado");
-
-  // Patient Faturas Modal state
-  const [patientFaturasDialog, setPatientFaturasDialog] = useState<{
-    open: boolean;
-    pacienteId: string;
-    pacienteNome: string;
-  }>({ open: false, pacienteId: "", pacienteNome: "" });
-
-  const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
-
-  const handleOpenPatientFaturas = (pacienteId: string, pacienteNome: string) => {
-    setPatientFaturasDialog({ open: true, pacienteId, pacienteNome });
-  };
-
   const getApoioFaturaValor = (fatura: any) => {
     const p = patientDetailsMap.get(fatura.paciente_id);
     if (!p) return Number(fatura.valor) || 0;
@@ -1853,6 +1811,84 @@ function DiretoriaPageContent() {
       };
       return defaultRates[freq] ?? 120.00;
     }
+  };
+
+  const getFaturaRealValor = (f: any) => {
+    if (f.especialidade === "Apoio") return getApoioFaturaValor(f);
+    const items = (faturaItens || []).filter((item: any) => (item.fatura_id || item.faturas?.id) === f.id);
+    if (items.length > 0) {
+      return items.reduce((acc: number, item: any) => acc + (Number(item.total) || 0), 0);
+    }
+    if (!f.observacoes && !f.especialidade) return 0;
+    return Number(f.valor) || 0;
+  };
+
+  const stats = useMemo(() => {
+    // Faturamento Recebido (Pagas)
+    const faturamentoRecebido = (faturas || [])
+      .filter((f) => f.status === "paga")
+      .reduce((acc, f) => acc + getFaturaRealValor(f), 0);
+
+    // Faturamento A Receber (Abertas)
+    const faturamentoAReceber = (faturas || [])
+      .filter((f) => f.status === "aberta")
+      .reduce((acc, f) => acc + getFaturaRealValor(f), 0);
+
+    // Faturamento Vencido (Vencidas)
+    const faturamentoVencido = (faturas || [])
+      .filter((f) => f.status === "vencida")
+      .reduce((acc, f) => acc + getFaturaRealValor(f), 0);
+
+    // Faturamento Pendente (Abertas/Vencidas)
+    const faturamentoPendente = faturamentoAReceber + faturamentoVencido;
+
+    // Faturamento Geral (Total Faturas)
+    const faturamentoTotal = (faturas || [])
+      .filter((f) => f.status !== "cancelada")
+      .reduce((acc, f) => acc + getFaturaRealValor(f), 0);
+
+    // Despesas
+    const totalDespesas = despesas.reduce((acc, d) => acc + Number(d.valor), 0);
+
+    // Balanços
+    const balancoReal = faturamentoRecebido - totalDespesas;
+    const balancoEstimado = faturamentoTotal - totalDespesas;
+
+    return {
+      faturamentoRecebido,
+      faturamentoAReceber,
+      faturamentoVencido,
+      faturamentoPendente,
+      faturamentoTotal,
+      totalDespesas,
+      balancoReal,
+      balancoEstimado,
+    };
+  }, [faturas, despesas, faturaItens, patientDetailsMap]);
+
+  const caixaLiquidoReal =
+    stats.faturamentoRecebido - repasseStats.repasseApto - stats.totalDespesas;
+  const caixaLiquidoPrevisto =
+    stats.faturamentoTotal - repasseStats.repasseProfissional - stats.totalDespesas;
+
+  // Billing Filters
+  const [searchPatient, setSearchPatient] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [profFilter, setProfFilter] = useState("all");
+  const [paymentTypeFilter, setPaymentTypeFilter] = useState<"all" | "mensal" | "sessao">("all");
+  const [subTab, setSubTab] = useState<"consolidado" | "historico">("consolidado");
+
+  // Patient Faturas Modal state
+  const [patientFaturasDialog, setPatientFaturasDialog] = useState<{
+    open: boolean;
+    pacienteId: string;
+    pacienteNome: string;
+  }>({ open: false, pacienteId: "", pacienteNome: "" });
+
+  const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
+
+  const handleOpenPatientFaturas = (pacienteId: string, pacienteNome: string) => {
+    setPatientFaturasDialog({ open: true, pacienteId, pacienteNome });
   };
 
   // Memoized consolidated billing by patient
@@ -1884,6 +1920,11 @@ function DiretoriaPageContent() {
       const patientName = patientMap.get(pId) || "Paciente Desconhecido";
       const pDetails = patientDetailsMap.get(pId);
       
+      const val = getFaturaRealValor(f);
+      if (val <= 0 && !f.observacoes && !f.especialidade) {
+        continue;
+      }
+
       const billingType = f.especialidade === "Apoio" 
         ? "mensal" 
         : (pDetails && pDetails.valor_mensal && pDetails.valor_mensal > 0 ? "mensal" : "sessao");
@@ -1908,7 +1949,6 @@ function DiretoriaPageContent() {
       }
 
       entry.faturas.push(f);
-      const val = f.especialidade === "Apoio" ? getApoioFaturaValor(f) : (Number(f.valor) || 0);
 
       if (f.status === "paga") {
         entry.totalPago += val;
@@ -2070,20 +2110,26 @@ function DiretoriaPageContent() {
             }
           }
           
+          const agStatus = item.agendamento_id ? agendamentoStatusMap.get(item.agendamento_id) : null;
+          const isPago = agStatus === "pago" || f.status === "paga";
+          const rowStatus = isPago ? "paga" : f.status;
+          const rowMetodo = f.metodo || (agStatus === "pago" ? "pix" : null);
+          const rowPagoEm = f.pago_em || (agStatus === "pago" ? (item.agendamento_id ? agendamentoDateMap.get(item.agendamento_id) : f.competencia) : null);
+
           rows.push({
             id: `item-${item.id}`,
             faturaId: f.id,
             paciente_id: f.paciente_id,
             competencia: f.competencia,
             vencimento: f.vencimento,
-            pago_em: f.pago_em,
-            status: f.status,
-            metodo: f.metodo,
+            pago_em: rowPagoEm,
+            status: rowStatus,
+            metodo: rowMetodo,
             valor: f.especialidade === "Apoio" ? getApoioFaturaValor(f) : (Number(item.total || 0)),
             descricao: rowDesc,
             profissionalNome: finalProfName,
             especialidade: f.especialidade || null,
-            fatura: f,
+            fatura: { ...f, status: rowStatus, pago_em: rowPagoEm, metodo: rowMetodo },
             item: item,
             isFaturaOnly: false,
           });
