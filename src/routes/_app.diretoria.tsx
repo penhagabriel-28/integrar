@@ -324,48 +324,184 @@ function DiretoriaPageContent() {
   const confirmPaymentMutation = useMutation({
     mutationFn: async ({
       id,
+      valor_pago,
       pago_em,
       metodo,
       observacoes,
     }: {
       id: string;
+      valor_pago?: number;
       pago_em: string;
       metodo: string;
       observacoes?: string;
     }) => {
-      const { error } = await supabase
+      // 1. Fetch current fatura
+      const { data: currentFat, error: fatFetchErr } = await supabase
         .from("faturas")
-        .update({
-          status: "paga",
-          pago_em,
-          metodo: metodo as any,
-          observacoes: observacoes || null,
-        })
-        .eq("id", id);
-      if (error) throw error;
+        .select("id, paciente_id, valor, status, competencia, vencimento, profissional_id, especialidade, observacoes")
+        .eq("id", id)
+        .single();
+      if (fatFetchErr) throw fatFetchErr;
 
-      // Update linked agendamentos to 'pago' to keep agenda in sync
-      const { data: linkedItems } = await supabase
+      // 2. Fetch items of this fatura
+      const { data: items = [] } = await supabase
         .from("fatura_itens")
-        .select("agendamento_id")
+        .select("id, fatura_id, agendamento_id, descricao, valor_unitario, quantidade, total")
         .eq("fatura_id", id);
-      const agIds = (linkedItems || []).map((it: any) => it.agendamento_id).filter(Boolean);
-      if (agIds.length > 0) {
-        await supabase
-          .from("agendamentos")
-          .update({ status: "pago" })
-          .in("id", agIds);
+
+      const totalOriginal = items.length > 0
+        ? items.reduce((sum: number, it: any) => sum + (Number(it.total) || 0), 0)
+        : Number(currentFat.valor) || 0;
+
+      const paidAmount = valor_pago !== undefined && !isNaN(valor_pago) && valor_pago > 0
+        ? valor_pago
+        : totalOriginal;
+
+      const isPartial = paidAmount < (totalOriginal - 0.01);
+      const remainingAmount = Math.max(0, Math.round((totalOriginal - paidAmount) * 100) / 100);
+
+      if (isPartial) {
+        // --- PAGAMENTO PARCIAL ---
+        if (items.length > 0) {
+          let accum = 0;
+          const itemsToKeepPaid: any[] = [];
+          const itemsToMovePending: any[] = [];
+
+          for (const it of items) {
+            const itTotal = Number(it.total) || 0;
+            if (accum + itTotal <= paidAmount + 0.01) {
+              accum += itTotal;
+              itemsToKeepPaid.push(it);
+            } else {
+              itemsToMovePending.push(it);
+            }
+          }
+
+          // Cria nova fatura aberta com o saldo restante
+          const { data: newPendingFat, error: newFatErr } = await supabase
+            .from("faturas")
+            .insert({
+              paciente_id: currentFat.paciente_id,
+              competencia: currentFat.competencia,
+              vencimento: currentFat.vencimento,
+              valor: remainingAmount,
+              status: "aberta",
+              profissional_id: currentFat.profissional_id,
+              especialidade: currentFat.especialidade,
+              observacoes: `Saldo restante (R$ ${remainingAmount.toFixed(2)}) referente ao pagamento parcial de R$ ${paidAmount.toFixed(2)} (Total original: R$ ${totalOriginal.toFixed(2)}).`
+            })
+            .select()
+            .single();
+          if (newFatErr) throw newFatErr;
+
+          // Move os itens pendentes para a nova fatura
+          if (itemsToMovePending.length > 0) {
+            const moveIds = itemsToMovePending.map((it: any) => it.id);
+            await supabase
+              .from("fatura_itens")
+              .update({ fatura_id: newPendingFat.id })
+              .in("id", moveIds);
+          }
+
+          // Se cobriu fração que não fecha um item exato, insere item de abatimento na fatura paga
+          const remainderCovered = Math.round((paidAmount - accum) * 100) / 100;
+          if (remainderCovered > 0.01) {
+            await supabase.from("fatura_itens").insert({
+              fatura_id: id,
+              descricao: `Abatimento parcial recebido`,
+              quantidade: 1,
+              valor_unitario: remainderCovered,
+              total: remainderCovered,
+            });
+          }
+
+          // Atualiza a fatura original como paga com o valor pago
+          const obsParcial = (observacoes ? observacoes + " | " : "") +
+            `Pagamento parcial de R$ ${paidAmount.toFixed(2)} (Total original: R$ ${totalOriginal.toFixed(2)}). Saldo de R$ ${remainingAmount.toFixed(2)} em aberto.`;
+
+          await supabase
+            .from("faturas")
+            .update({
+              status: "paga",
+              valor: paidAmount,
+              pago_em,
+              metodo: metodo as any,
+              observacoes: obsParcial,
+            })
+            .eq("id", id);
+
+          // Atualiza os agendamentos das sessões pagas para 'pago'
+          const paidAgIds = itemsToKeepPaid.map((it: any) => it.agendamento_id).filter(Boolean);
+          if (paidAgIds.length > 0) {
+            await supabase
+              .from("agendamentos")
+              .update({ status: "pago" })
+              .in("id", paidAgIds);
+          }
+        } else {
+          // Fatura sem itens: cria nova fatura com saldo restante
+          const { error: newFatErr } = await supabase
+            .from("faturas")
+            .insert({
+              paciente_id: currentFat.paciente_id,
+              competencia: currentFat.competencia,
+              vencimento: currentFat.vencimento,
+              valor: remainingAmount,
+              status: "aberta",
+              profissional_id: currentFat.profissional_id,
+              especialidade: currentFat.especialidade,
+              observacoes: `Saldo restante (R$ ${remainingAmount.toFixed(2)}) referente ao pagamento parcial de R$ ${paidAmount.toFixed(2)} da cobrança anterior.`
+            });
+          if (newFatErr) throw newFatErr;
+
+          const obsParcial = (observacoes ? observacoes + " | " : "") +
+            `Pagamento parcial de R$ ${paidAmount.toFixed(2)} (Total original: R$ ${totalOriginal.toFixed(2)}). Restante em aberto: R$ ${remainingAmount.toFixed(2)}.`;
+
+          await supabase
+            .from("faturas")
+            .update({
+              status: "paga",
+              valor: paidAmount,
+              pago_em,
+              metodo: metodo as any,
+              observacoes: obsParcial,
+            })
+            .eq("id", id);
+        }
+      } else {
+        // --- PAGAMENTO INTEGRAL ---
+        const { error } = await supabase
+          .from("faturas")
+          .update({
+            status: "paga",
+            valor: paidAmount,
+            pago_em,
+            metodo: metodo as any,
+            observacoes: observacoes || null,
+          })
+          .eq("id", id);
+        if (error) throw error;
+
+        // Atualiza agendamentos vinculados para 'pago'
+        const agIds = items.map((it: any) => it.agendamento_id).filter(Boolean);
+        if (agIds.length > 0) {
+          await supabase
+            .from("agendamentos")
+            .update({ status: "pago" })
+            .in("id", agIds);
+        }
       }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["dir-faturas"] });
       queryClient.invalidateQueries({ queryKey: ["dir-fatura-itens"] });
+      queryClient.invalidateQueries({ queryKey: ["dir-fatura-itens-all"] });
       queryClient.invalidateQueries({ queryKey: ["dir-linked-agendamentos"] });
       queryClient.invalidateQueries({ queryKey: ["ags"] });
-      toast.success("Pagamento confirmado com sucesso!");
+      toast.success("Pagamento registrado com sucesso!");
     },
     onError: (err: any) => {
-      toast.error("Erro ao confirmar pagamento: " + err.message);
+      toast.error("Erro ao registrar pagamento: " + err.message);
     },
   });
 
@@ -2597,6 +2733,7 @@ function DiretoriaPageContent() {
 
   // Form states
   const [payForm, setPayForm] = useState({
+    valor_pago: "",
     pago_em: format(new Date(), "yyyy-MM-dd"),
     metodo: "pix",
     observacoes: "",
@@ -2822,7 +2959,9 @@ function DiretoriaPageContent() {
   };
 
   const handleOpenConfirmPayment = (fatura: any) => {
+    const totalVal = getFaturaRealValor(fatura) || Number(fatura.valor) || 0;
     setPayForm({
+      valor_pago: totalVal > 0 ? String(totalVal) : "",
       pago_em: format(new Date(), "yyyy-MM-dd"),
       metodo: fatura.metodo || "pix",
       observacoes: fatura.observacoes || "",
@@ -3740,9 +3879,15 @@ function DiretoriaPageContent() {
             onSubmit={(e) => {
               e.preventDefault();
               if (payDialog.fatura) {
+                const parsedVal = parseFloat(String(payForm.valor_pago || "0").replace(",", "."));
+                if (isNaN(parsedVal) || parsedVal <= 0) {
+                  toast.error("Informe um valor pago válido");
+                  return;
+                }
                 confirmPaymentMutation.mutate(
                   {
                     id: payDialog.fatura.id,
+                    valor_pago: parsedVal,
                     pago_em: new Date(payForm.pago_em + "T12:00:00").toISOString(),
                     metodo: payForm.metodo,
                     observacoes: payForm.observacoes,
@@ -3763,15 +3908,67 @@ function DiretoriaPageContent() {
                 className="bg-muted"
               />
             </div>
+            
+            {/* Valor Original vs Valor Pago Editável */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label>Valor</Label>
+                <Label className="text-xs text-muted-foreground font-semibold">Valor Total da Cobrança</Label>
                 <Input
-                  value={payDialog.fatura ? brl(Number(payDialog.fatura.valor)) : ""}
+                  value={payDialog.fatura ? brl(getFaturaRealValor(payDialog.fatura) || Number(payDialog.fatura.valor)) : ""}
                   disabled
-                  className="bg-muted"
+                  className="bg-muted font-medium text-muted-foreground"
                 />
               </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-foreground flex items-center justify-between">
+                  <span>Valor Pago (R$)</span>
+                  {payDialog.fatura && (() => {
+                    const totalVal = getFaturaRealValor(payDialog.fatura) || Number(payDialog.fatura.valor) || 0;
+                    const paidVal = parseFloat(String(payForm.valor_pago || "0").replace(",", ".")) || 0;
+                    if (paidVal > 0 && paidVal < totalVal - 0.01) {
+                      return <span className="text-[11px] text-amber-600 dark:text-amber-400 font-semibold">Parcial</span>;
+                    }
+                    if (paidVal >= totalVal && totalVal > 0) {
+                      return <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">Integral</span>;
+                    }
+                    return null;
+                  })()}
+                </Label>
+                <Input
+                  type="text"
+                  required
+                  placeholder="0,00"
+                  value={payForm.valor_pago}
+                  onChange={(e) => setPayForm({ ...payForm, valor_pago: e.target.value })}
+                  className="font-bold text-emerald-600 dark:text-emerald-400"
+                />
+              </div>
+            </div>
+
+            {/* Aviso visual de pagamento parcial */}
+            {payDialog.fatura && (() => {
+              const totalVal = getFaturaRealValor(payDialog.fatura) || Number(payDialog.fatura.valor) || 0;
+              const paidVal = parseFloat(String(payForm.valor_pago || "0").replace(",", ".")) || 0;
+              if (paidVal > 0 && paidVal < totalVal - 0.01) {
+                const restante = Math.round((totalVal - paidVal) * 100) / 100;
+                return (
+                  <div className="p-3 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200 text-xs space-y-1 animate-in fade-in duration-150">
+                    <div className="font-semibold flex items-center gap-1.5">
+                      <span>⚠️ Pagamento Parcial Detectado</span>
+                    </div>
+                    <div>
+                      Valor a quitar agora: <strong className="text-emerald-600 dark:text-emerald-400">{brl(paidVal)}</strong>.
+                    </div>
+                    <div>
+                      Saldo restante: <strong className="text-amber-700 dark:text-amber-300">{brl(restante)}</strong> (será mantido automaticamente em aberto para o paciente).
+                    </div>
+                  </div>
+                );
+              }
+              return null;
+            })()}
+
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label>Data de Pagamento</Label>
                 <Input
@@ -3781,32 +3978,32 @@ function DiretoriaPageContent() {
                   onChange={(e) => setPayForm({ ...payForm, pago_em: e.target.value })}
                 />
               </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Método de Pagamento</Label>
-              <Select
-                value={payForm.metodo}
-                onValueChange={(val) => setPayForm({ ...payForm, metodo: val })}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="pix">PIX</SelectItem>
-                  <SelectItem value="dinheiro">Dinheiro</SelectItem>
-                  <SelectItem value="cartao_credito">Cartão de Crédito</SelectItem>
-                  <SelectItem value="cartao_debito">Cartão de Débito</SelectItem>
-                  <SelectItem value="transferencia">Transferência Bancária</SelectItem>
-                  <SelectItem value="boleto">Boleto</SelectItem>
-                  <SelectItem value="convenio">Convênio</SelectItem>
-                  <SelectItem value="outro">Outro</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="space-y-1.5">
+                <Label>Método de Pagamento</Label>
+                <Select
+                  value={payForm.metodo}
+                  onValueChange={(val) => setPayForm({ ...payForm, metodo: val })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pix">PIX</SelectItem>
+                    <SelectItem value="dinheiro">Dinheiro</SelectItem>
+                    <SelectItem value="cartao_credito">Cartão de Crédito</SelectItem>
+                    <SelectItem value="cartao_debito">Cartão de Débito</SelectItem>
+                    <SelectItem value="transferencia">Transferência Bancária</SelectItem>
+                    <SelectItem value="boleto">Boleto</SelectItem>
+                    <SelectItem value="convenio">Convênio</SelectItem>
+                    <SelectItem value="outro">Outro</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <div className="space-y-1.5">
               <Label>Observações</Label>
               <Textarea
-                placeholder="Alguma observação sobre o pagamento..."
+                placeholder="Observações sobre o pagamento (opcional)..."
                 rows={2}
                 value={payForm.observacoes}
                 onChange={(e) => setPayForm({ ...payForm, observacoes: e.target.value })}
@@ -3820,8 +4017,8 @@ function DiretoriaPageContent() {
               >
                 Cancelar
               </Button>
-              <Button type="submit" disabled={confirmPaymentMutation.isPending}>
-                {confirmPaymentMutation.isPending ? "Confirmando..." : "Confirmar Pagamento"}
+              <Button type="submit" disabled={confirmPaymentMutation.isPending} className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold">
+                {confirmPaymentMutation.isPending ? "Processando..." : "Confirmar Pagamento"}
               </Button>
             </DialogFooter>
           </form>
@@ -4296,22 +4493,39 @@ function DiretoriaPageContent() {
                 if (totalPendente <= 0) return null;
                 const resps = responsaveisMap.get(patientFaturasDialog.pacienteId) || [];
                 const primaryResp = resps.find((r) => r.whatsapp) || resps.find((r) => r.telefone) || resps[0];
-                if (!primaryResp || (!primaryResp.whatsapp && !primaryResp.telefone)) return null;
                 return (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="gap-1.5 font-semibold text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 border-emerald-500/30 cursor-pointer"
-                    onClick={() =>
-                      handleWhatsAppClick(
-                        patientFaturasDialog.pacienteId,
-                        totalPendente,
-                        patientFaturasDialog.pacienteNome
-                      )
-                    }
-                  >
-                    <MessageCircle className="h-4 w-4" /> Cobrança no WhatsApp
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5 font-semibold text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 border-emerald-500/30 cursor-pointer"
+                      onClick={() => {
+                        const firstPending = patientDetailedRows.find((r: any) => r.status !== "paga");
+                        if (firstPending) {
+                          handleOpenConfirmPayment(firstPending.fatura);
+                        }
+                      }}
+                      title="Registrar pagamento ou valor parcial deste paciente"
+                    >
+                      <Check className="h-4 w-4" /> Pagamento / Parcial
+                    </Button>
+                    {primaryResp && (primaryResp.whatsapp || primaryResp.telefone) && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-1.5 font-semibold text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 border-emerald-500/30 cursor-pointer"
+                        onClick={() =>
+                          handleWhatsAppClick(
+                            patientFaturasDialog.pacienteId,
+                            totalPendente,
+                            patientFaturasDialog.pacienteNome
+                          )
+                        }
+                      >
+                        <MessageCircle className="h-4 w-4" /> Cobrança no WhatsApp
+                      </Button>
+                    )}
+                  </div>
                 );
               })()}
               <Button
