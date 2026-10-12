@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase as supabaseClient } from "@/integrations/supabase/client";
 const supabase = supabaseClient as any;
 import { useState, useMemo, useEffect, Fragment } from "react";
-import { format, startOfMonth, endOfMonth, differenceInDays, startOfDay } from "date-fns";
+import { format, startOfMonth, endOfMonth, subMonths, differenceInDays, startOfDay } from "date-fns";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -212,34 +212,9 @@ function DiretoriaPageContent() {
       void supabase.removeChannel(channel);
     };
   }, [queryClient]);
-  const today = new Date();
-  const lastDayOfPrevMonth = new Date(today.getFullYear(), today.getMonth(), 0);
-  const [inicio, setInicio] = useState(format(startOfMonth(today), "yyyy-MM-dd"));
-  const [fim, setFim] = useState(format(lastDayOfPrevMonth, "yyyy-MM-dd"));
-
-  useEffect(() => {
-    async function fetchOldestPendingCompetence() {
-      try {
-        const { data, error } = await supabase
-          .from("faturas")
-          .select("competencia")
-          .in("status", ["aberta", "vencida"])
-          .order("competencia", { ascending: true })
-          .limit(1);
-        
-        if (error) throw error;
-        
-        if (data && data.length > 0 && data[0]?.competencia) {
-          const rawDate = data[0].competencia;
-          const formattedDate = typeof rawDate === "string" ? rawDate.substring(0, 10) : format(new Date(rawDate), "yyyy-MM-dd");
-          setInicio(formattedDate);
-        }
-      } catch (err) {
-        console.error("Erro ao buscar competência mais antiga pendente:", err);
-      }
-    }
-    void fetchOldestPendingCompetence();
-  }, []);
+  const prevMonth = subMonths(new Date(), 1);
+  const [inicio, setInicio] = useState(format(startOfMonth(prevMonth), "yyyy-MM-dd"));
+  const [fim, setFim] = useState(format(endOfMonth(prevMonth), "yyyy-MM-dd"));
 
   const normalizeString = (str: string) =>
     str ? str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() : "";
