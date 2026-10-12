@@ -19,6 +19,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableFooter,
   TableHead,
   TableHeader,
   TableRow,
@@ -160,6 +161,11 @@ function DespesasPage() {
       return data;
     },
   });
+
+  const totalDespesas = useMemo(() => {
+    if (!Array.isArray(despesas)) return 0;
+    return despesas.reduce((acc: number, d: any) => acc + (Number(d.valor) || 0), 0);
+  }, [despesas]);
 
   // Insert Expense mutation
   const createExpenseMutation = useMutation({
@@ -399,9 +405,19 @@ function DespesasPage() {
 
         {/* Expenses List Table Card */}
         <Card className="border-border shadow-sm lg:col-span-2">
-          <CardHeader>
-            <CardTitle className="text-lg">Despesas Registradas</CardTitle>
-            <CardDescription>Lista de gastos efetuados no período selecionado.</CardDescription>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+            <div>
+              <CardTitle className="text-lg">Despesas Registradas</CardTitle>
+              <CardDescription>Lista de gastos efetuados no período selecionado.</CardDescription>
+            </div>
+            {despesas.length > 0 && (
+              <div className="text-right">
+                <span className="text-xs text-muted-foreground block">Total no período</span>
+                <span className="text-base font-bold text-rose-600 dark:text-rose-400">
+                  {brl(totalDespesas)}
+                </span>
+              </div>
+            )}
           </CardHeader>
           <CardContent className="p-0 sm:p-6 sm:pt-0">
             {loadingDespesas ? (
@@ -489,6 +505,20 @@ function DespesasPage() {
                       </TableRow>
                     ))}
                   </TableBody>
+                  <TableFooter className="bg-muted/40 font-semibold border-t-2">
+                    <TableRow className="hover:bg-transparent">
+                      <TableCell colSpan={3} className="py-3 font-bold text-foreground text-sm">
+                        Total das Despesas
+                        <span className="ml-2 text-xs font-normal text-muted-foreground">
+                          ({despesas.length} {despesas.length === 1 ? "registro" : "registros"})
+                        </span>
+                      </TableCell>
+                      <TableCell className="py-3 text-right font-bold text-base text-rose-600 dark:text-rose-400">
+                        {brl(totalDespesas)}
+                      </TableCell>
+                      <TableCell className="py-3" />
+                    </TableRow>
+                  </TableFooter>
                 </Table>
               </div>
             )}
