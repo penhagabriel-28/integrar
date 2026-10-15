@@ -42,7 +42,7 @@ import { toast } from "sonner";
 import { PlanoAbaDialog } from "@/components/PlanoAbaDialog";
 import { addDays, addWeeks, endOfWeek, format, isSameDay, startOfWeek, startOfMonth } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { cn } from "@/lib/utils";
+import { cn, getDefaultVencimento } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Command,
@@ -820,6 +820,7 @@ const syncAgendamentoFinanceiro = async (
               pago_em: payDate,
               metodo: metodo as any,
               valor: sessionVal,
+              vencimento: getDefaultVencimento(compDate),
               especialidade: especialidade || null,
               profissional_id: profissionalId || null,
             })
@@ -840,6 +841,7 @@ const syncAgendamentoFinanceiro = async (
             .insert({
               paciente_id: pacienteId,
               competencia: compDate,
+              vencimento: getDefaultVencimento(compDate),
               status: "paga",
               pago_em: payDate,
               metodo: metodo as any,
@@ -878,6 +880,7 @@ const syncAgendamentoFinanceiro = async (
           .insert({
             paciente_id: pacienteId,
             competencia: compDate,
+            vencimento: getDefaultVencimento(compDate),
             status: "paga",
             pago_em: payDate,
             metodo: metodo as any,
@@ -905,21 +908,27 @@ const syncAgendamentoFinanceiro = async (
         const oldFatId = existingItem.fatura_id;
         const { data: oldFat } = await supabase
           .from("faturas")
-          .select("id, status")
+          .select("id, status, vencimento")
           .eq("id", oldFatId)
           .single();
 
-        if (oldFat?.status === "paga") {
-          await supabase
-            .from("faturas")
-            .update({
-              status: "aberta",
-              pago_em: null,
-              metodo: null,
-              valor: sessionVal,
-            })
-            .eq("id", oldFatId);
+        const updateData: any = {
+          valor: sessionVal,
+        };
+        if (!oldFat?.vencimento) {
+          updateData.vencimento = getDefaultVencimento(compDate);
         }
+
+        if (oldFat?.status === "paga") {
+          updateData.status = "aberta";
+          updateData.pago_em = null;
+          updateData.metodo = null;
+        }
+
+        await supabase
+          .from("faturas")
+          .update(updateData)
+          .eq("id", oldFatId);
 
         await supabase
           .from("fatura_itens")
@@ -935,6 +944,7 @@ const syncAgendamentoFinanceiro = async (
           .insert({
             paciente_id: pacienteId,
             competencia: compDate,
+            vencimento: getDefaultVencimento(compDate),
             status: "aberta",
             valor: sessionVal,
             especialidade: especialidade || null,
@@ -1471,7 +1481,9 @@ Fico à disposição para qualquer dúvida!`;
     const isNotaFiscal = NOTA_FISCAL_PATIENT_IDS.has(form.paciente_id);
     const applyNfRate = (v: number | null | undefined) => {
       if (v === null || v === undefined) return v;
-      return isNotaFiscal ? Math.round(Number(v) * 1.1) : v;
+      const n = Number(v);
+      if (isNaN(n) || n <= 0) return v;
+      return isNotaFiscal ? n + 10 : v;
     };
 
     // Check custom patient discount
@@ -1486,7 +1498,7 @@ Fico à disposição para qualquer dúvida!`;
 
     if (discount) {
       return {
-        type: isNotaFiscal ? "Paciente (Nota Fiscal 10%)" : "Paciente (Desconto)",
+        type: isNotaFiscal ? "Paciente (Nota Fiscal +R$ 10)" : "Paciente (Desconto)",
         valor_sessao: discount.valor_sessao,
         valor_avaliacao: discount.valor_avaliacao,
       };
@@ -1502,7 +1514,7 @@ Fico à disposição para qualquer dúvida!`;
     if (specConfig) {
       const baseSessao = specialtyUpper === "AP" ? null : (specConfig.valor_sessao ?? prof.valor_sessao);
       return {
-        type: isNotaFiscal ? "Padrão Especialidade (+10% NF)" : "Padrão Especialidade",
+        type: isNotaFiscal ? "Padrão Especialidade (+R$ 10 NF)" : "Padrão Especialidade",
         valor_sessao: applyNfRate(baseSessao),
         valor_avaliacao: applyNfRate(specConfig.valor_avaliacao),
         plano_mensal: specConfig.plano_mensal,
@@ -1511,7 +1523,7 @@ Fico à disposição para qualquer dúvida!`;
 
     // Default professional rate
     return {
-      type: isNotaFiscal ? "Padrão Profissional (+10% NF)" : "Padrão Profissional",
+      type: isNotaFiscal ? "Padrão Profissional (+R$ 10 NF)" : "Padrão Profissional",
       valor_sessao: applyNfRate(prof.valor_sessao),
       valor_avaliacao: null,
     };

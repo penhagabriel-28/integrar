@@ -18,6 +18,7 @@ import {
   WhatsAppBillingDialog,
   WhatsAppTemplateConfigDialog,
 } from "@/components/WhatsAppBillingDialog";
+import { getDefaultVencimento } from "@/lib/utils";
 
 const NOTA_FISCAL_PATIENT_IDS = new Set([
   "d962c381-6d62-4697-9917-a09d08fad38d", // Aldelina Menezes Mendes
@@ -383,7 +384,7 @@ function DiretoriaPageContent() {
             .insert({
               paciente_id: currentFat.paciente_id,
               competencia: currentFat.competencia,
-              vencimento: currentFat.vencimento,
+              vencimento: currentFat.vencimento || getDefaultVencimento(currentFat.competencia),
               valor: remainingAmount,
               status: "aberta",
               profissional_id: currentFat.profissional_id,
@@ -445,7 +446,7 @@ function DiretoriaPageContent() {
             .insert({
               paciente_id: currentFat.paciente_id,
               competencia: currentFat.competencia,
-              vencimento: currentFat.vencimento,
+              vencimento: currentFat.vencimento || getDefaultVencimento(currentFat.competencia),
               valor: remainingAmount,
               status: "aberta",
               profissional_id: currentFat.profissional_id,
@@ -574,7 +575,7 @@ function DiretoriaPageContent() {
       const { error } = await supabase.from("faturas").insert({
         paciente_id: newFatura.paciente_id,
         competencia: newFatura.competencia,
-        vencimento: newFatura.vencimento || null,
+        vencimento: newFatura.vencimento || getDefaultVencimento(newFatura.competencia),
         valor: newFatura.valor,
         status: newFatura.status as any,
         observacoes: newFatura.observacoes || null,
@@ -1348,7 +1349,7 @@ function DiretoriaPageContent() {
     const config = prof.valores_config || { especialidades: [], descontos: [] };
     const valorDefault = Number(prof.valor_sessao || 0);
     const isNotaFiscal = NOTA_FISCAL_PATIENT_IDS.has(a.paciente_id);
-    const applyNfRate = (v: number) => isNotaFiscal ? Math.round(v * 1.1) : v;
+    const applyNfRate = (v: number) => (isNotaFiscal && v > 0 ? v + 10 : v);
 
     // 1. Check custom patient discount
     if (Array.isArray(config.descontos) && config.descontos.length > 0) {
@@ -2165,12 +2166,13 @@ function DiretoriaPageContent() {
           }
         }
 
+        const effectiveVencimento = f.vencimento || getDefaultVencimento(f.competencia);
         rows.push({
           id: `fatura-${f.id}`,
           faturaId: f.id,
           paciente_id: f.paciente_id,
           competencia: f.competencia,
-          vencimento: f.vencimento,
+          vencimento: effectiveVencimento,
           pago_em: f.pago_em,
           status: f.status,
           metodo: f.metodo,
@@ -2178,7 +2180,7 @@ function DiretoriaPageContent() {
           descricao: rowDesc,
           profissionalNome: profNome,
           especialidade: f.especialidade || null,
-          fatura: f,
+          fatura: { ...f, vencimento: effectiveVencimento },
           isFaturaOnly: true,
         });
       } else {
@@ -2235,13 +2237,14 @@ function DiretoriaPageContent() {
           const rowStatus = isPago ? "paga" : f.status;
           const rowMetodo = f.metodo || (agStatus === "pago" ? "pix" : null);
           const rowPagoEm = f.pago_em || (agStatus === "pago" ? (item.agendamento_id ? agendamentoDateMap.get(item.agendamento_id) : f.competencia) : null);
+          const effectiveVencimento = f.vencimento || getDefaultVencimento(f.competencia);
 
           rows.push({
             id: `item-${item.id}`,
             faturaId: f.id,
             paciente_id: f.paciente_id,
             competencia: f.competencia,
-            vencimento: f.vencimento,
+            vencimento: effectiveVencimento,
             pago_em: rowPagoEm,
             status: rowStatus,
             metodo: rowMetodo,
@@ -2249,7 +2252,7 @@ function DiretoriaPageContent() {
             descricao: rowDesc,
             profissionalNome: finalProfName,
             especialidade: f.especialidade || null,
-            fatura: { ...f, status: rowStatus, pago_em: rowPagoEm, metodo: rowMetodo },
+            fatura: { ...f, vencimento: effectiveVencimento, status: rowStatus, pago_em: rowPagoEm, metodo: rowMetodo },
             item: item,
             isFaturaOnly: false,
           });
@@ -2360,12 +2363,13 @@ function DiretoriaPageContent() {
             }
           }
 
+          const effectiveVencimento = f.vencimento || getDefaultVencimento(f.competencia);
           rows.push({
             id: `fatura-${f.id}`,
             faturaId: f.id,
             paciente_id: f.paciente_id,
             competencia: f.competencia,
-            vencimento: f.vencimento,
+            vencimento: effectiveVencimento,
             pago_em: f.pago_em,
             status: f.status,
             metodo: f.metodo,
@@ -2373,7 +2377,7 @@ function DiretoriaPageContent() {
             descricao: rowDesc,
             profissionalNome: profNome,
             especialidade: f.especialidade || null,
-            fatura: f,
+            fatura: { ...f, vencimento: effectiveVencimento },
             isFaturaOnly: true,
           });
         } else {
@@ -2424,12 +2428,13 @@ function DiretoriaPageContent() {
               }
             }
 
+            const effectiveVencimento = f.vencimento || getDefaultVencimento(f.competencia);
             rows.push({
               id: `item-${item.id}`,
               faturaId: f.id,
               paciente_id: f.paciente_id,
               competencia: f.competencia,
-              vencimento: f.vencimento,
+              vencimento: effectiveVencimento,
               pago_em: f.pago_em,
               status: f.status,
               metodo: f.metodo,
@@ -2437,7 +2442,7 @@ function DiretoriaPageContent() {
               descricao: rowDesc,
               profissionalNome: finalProfName,
               especialidade: f.especialidade || null,
-              fatura: f,
+              fatura: { ...f, vencimento: effectiveVencimento },
               item: item,
               isFaturaOnly: false,
             });
@@ -2739,10 +2744,11 @@ function DiretoriaPageContent() {
     observacoes: "",
   });
 
+  const initialFaturaComp = format(startOfMonth(new Date()), "yyyy-MM-dd");
   const [faturaForm, setFaturaForm] = useState({
     paciente_id: "",
-    competencia: format(startOfMonth(new Date()), "yyyy-MM-dd"),
-    vencimento: "",
+    competencia: initialFaturaComp,
+    vencimento: getDefaultVencimento(initialFaturaComp),
     valor: "",
     status: "aberta",
     pago_em: "",
@@ -2805,7 +2811,7 @@ function DiretoriaPageContent() {
     const config = prof.valores_config || { especialidades: [], descontos: [] };
     const valorDefault = Number(prof.valor_sessao || 0);
     const isNotaFiscal = NOTA_FISCAL_PATIENT_IDS.has(pacienteId);
-    const applyNfRate = (v: number) => isNotaFiscal ? Math.round(v * 1.1) : v;
+    const applyNfRate = (v: number) => (isNotaFiscal && v > 0 ? v + 10 : v);
 
     // 1. Check custom patient discount
     if (Array.isArray(config.descontos) && config.descontos.length > 0) {
@@ -2944,7 +2950,7 @@ function DiretoriaPageContent() {
 
     setDetailsFaturaForm({
       competencia: fatura.competencia || "",
-      vencimento: fatura.vencimento || "",
+      vencimento: fatura.vencimento || getDefaultVencimento(fatura.competencia),
       status: fatura.status || "aberta",
       pago_em: fatura.pago_em ? format(new Date(fatura.pago_em), "yyyy-MM-dd") : "",
       metodo: fatura.metodo || "pix",
@@ -2973,7 +2979,7 @@ function DiretoriaPageContent() {
     setFaturaForm({
       paciente_id: fatura.paciente_id,
       competencia: fatura.competencia,
-      vencimento: fatura.vencimento || "",
+      vencimento: fatura.vencimento || getDefaultVencimento(fatura.competencia),
       valor: String(fatura.valor),
       status: fatura.status,
       pago_em: fatura.pago_em ? format(new Date(fatura.pago_em), "yyyy-MM-dd") : "",
@@ -2985,19 +2991,20 @@ function DiretoriaPageContent() {
   };
 
   const getDaysDelayed = (fatura: any) => {
-    if (fatura.status === "paga") {
-      if (fatura.pago_em && fatura.vencimento) {
+    const effectiveVencimento = fatura?.vencimento || getDefaultVencimento(fatura?.competencia);
+    if (fatura?.status === "paga") {
+      if (fatura?.pago_em && effectiveVencimento) {
         const payDate = startOfDay(new Date(fatura.pago_em));
-        const dueDate = startOfDay(new Date(fatura.vencimento + "T12:00:00"));
+        const dueDate = startOfDay(new Date(effectiveVencimento + "T12:00:00"));
         const diff = differenceInDays(payDate, dueDate);
         return diff > 0 ? diff : 0;
       }
       return 0;
     }
-    if (fatura.status === "cancelada") return 0;
-    if (fatura.vencimento) {
+    if (fatura?.status === "cancelada") return 0;
+    if (effectiveVencimento) {
       const today = startOfDay(new Date());
-      const dueDate = startOfDay(new Date(fatura.vencimento + "T12:00:00"));
+      const dueDate = startOfDay(new Date(effectiveVencimento + "T12:00:00"));
       const diff = differenceInDays(today, dueDate);
       return diff > 0 ? diff : 0;
     }
@@ -3227,10 +3234,11 @@ function DiretoriaPageContent() {
                         title="Nova Cobrança para este Paciente"
                         className="h-8 w-8 text-primary hover:bg-primary/5"
                         onClick={() => {
+                          const initialComp = format(startOfMonth(new Date()), "yyyy-MM-dd");
                           setFaturaForm({
                             paciente_id: c.pacienteId,
-                            competencia: format(startOfMonth(new Date()), "yyyy-MM-dd"),
-                            vencimento: "",
+                            competencia: initialComp,
+                            vencimento: getDefaultVencimento(initialComp),
                             valor: "",
                             status: "aberta",
                             pago_em: "",
@@ -3427,10 +3435,11 @@ function DiretoriaPageContent() {
                 </Button>
                 <Button
                   onClick={() => {
+                    const initialComp = format(startOfMonth(new Date()), "yyyy-MM-dd");
                     setFaturaForm({
                       paciente_id: "",
-                      competencia: format(startOfMonth(new Date()), "yyyy-MM-dd"),
-                      vencimento: "",
+                      competencia: initialComp,
+                      vencimento: getDefaultVencimento(initialComp),
                       valor: "",
                       status: "aberta",
                       pago_em: "",
@@ -4076,7 +4085,16 @@ function DiretoriaPageContent() {
                   type="month"
                   required
                   value={faturaForm.competencia ? faturaForm.competencia.substring(0, 7) : ""}
-                  onChange={(e) => setFaturaForm({ ...faturaForm, competencia: e.target.value ? e.target.value + "-01" : "" })}
+                  onChange={(e) => {
+                    const newComp = e.target.value ? e.target.value + "-01" : "";
+                    setFaturaForm((prev) => ({
+                      ...prev,
+                      competencia: newComp,
+                      vencimento: prev.vencimento && prev.vencimento !== getDefaultVencimento(prev.competencia)
+                        ? prev.vencimento
+                        : getDefaultVencimento(newComp),
+                    }));
+                  }}
                 />
               </div>
               <div className="space-y-1.5">
@@ -4257,7 +4275,16 @@ function DiretoriaPageContent() {
                   type="date"
                   required
                   value={faturaForm.competencia}
-                  onChange={(e) => setFaturaForm({ ...faturaForm, competencia: e.target.value })}
+                  onChange={(e) => {
+                    const newComp = e.target.value;
+                    setFaturaForm((prev) => ({
+                      ...prev,
+                      competencia: newComp,
+                      vencimento: prev.vencimento && prev.vencimento !== getDefaultVencimento(prev.competencia)
+                        ? prev.vencimento
+                        : getDefaultVencimento(newComp),
+                    }));
+                  }}
                 />
               </div>
               <div className="space-y-1.5">
@@ -4532,10 +4559,11 @@ function DiretoriaPageContent() {
                 size="sm"
                 className="gap-1.5 font-semibold cursor-pointer"
                 onClick={() => {
+                  const initialComp = format(startOfMonth(new Date()), "yyyy-MM-dd");
                   setFaturaForm({
                     paciente_id: patientFaturasDialog.pacienteId,
-                    competencia: format(startOfMonth(new Date()), "yyyy-MM-dd"),
-                    vencimento: "",
+                    competencia: initialComp,
+                    vencimento: getDefaultVencimento(initialComp),
                     valor: "",
                     status: "aberta",
                     pago_em: "",
@@ -4628,7 +4656,9 @@ function DiretoriaPageContent() {
                           <TableCell>
                             {row.vencimento
                               ? format(new Date(row.vencimento + "T12:00:00"), "dd/MM/yyyy")
-                              : "—"}
+                              : (row.competencia
+                                  ? format(new Date(getDefaultVencimento(row.competencia) + "T12:00:00"), "dd/MM/yyyy")
+                                  : "—")}
                           </TableCell>
                           <TableCell className="font-semibold">{brl(Number(row.valor))}</TableCell>
                           <TableCell>
@@ -4691,7 +4721,7 @@ function DiretoriaPageContent() {
                               )
                             ) : row.status === "cancelada" ? (
                               "—"
-                            ) : row.vencimento ? (
+                            ) : (row.vencimento || (row.competencia && getDefaultVencimento(row.competencia))) ? (
                               daysDelayed > 0 ? (
                                 <span className="text-xs text-rose-600 dark:text-rose-400 font-semibold flex items-center gap-1">
                                   <AlertCircle className="h-3.5 w-3.5 shrink-0" /> {daysDelayed}{" "}
@@ -4859,12 +4889,16 @@ function DiretoriaPageContent() {
                         type="month"
                         required
                         value={detailsFaturaForm.competencia ? detailsFaturaForm.competencia.substring(0, 7) : ""}
-                        onChange={(e) =>
-                          setDetailsFaturaForm({
-                            ...detailsFaturaForm,
-                            competencia: e.target.value ? e.target.value + "-01" : "",
-                          })
-                        }
+                        onChange={(e) => {
+                          const newComp = e.target.value ? e.target.value + "-01" : "";
+                          setDetailsFaturaForm((prev) => ({
+                            ...prev,
+                            competencia: newComp,
+                            vencimento: prev.vencimento && prev.vencimento !== getDefaultVencimento(prev.competencia)
+                              ? prev.vencimento
+                              : getDefaultVencimento(newComp),
+                          }));
+                        }}
                       />
                     </div>
                     <div className="space-y-1.5">
