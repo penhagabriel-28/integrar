@@ -686,6 +686,33 @@ export type Database = {
         }
         Relationships: []
       }
+      whatsapp_config: {
+        Row: {
+          clinica: string
+          created_at: string
+          id: string
+          pix: string
+          template: string
+          updated_at: string
+        }
+        Insert: {
+          clinica?: string
+          created_at?: string
+          id?: string
+          pix?: string
+          template?: string
+          updated_at?: string
+        }
+        Update: {
+          clinica?: string
+          created_at?: string
+          id?: string
+          pix?: string
+          template?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

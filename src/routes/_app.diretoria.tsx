@@ -214,6 +214,13 @@ function DiretoriaPageContent() {
           queryClient.invalidateQueries({ queryKey: ["dir-pacientes-min"] });
         }
       )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "whatsapp_config" },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ["whatsapp-config"] });
+        }
+      )
       .subscribe();
 
     return () => {
@@ -5390,6 +5397,7 @@ function DiretoriaPageContent() {
       <WhatsAppTemplateConfigDialog
         open={templateConfigDialog}
         onOpenChange={setTemplateConfigDialog}
+        onSaved={() => queryClient.invalidateQueries({ queryKey: ["whatsapp-config"] })}
       />
     </div>
   );

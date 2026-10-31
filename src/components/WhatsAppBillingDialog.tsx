@@ -1,4 +1,6 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import {
   Dialog,
   DialogContent,
@@ -30,11 +32,14 @@ import {
   Phone,
   User,
   ExternalLink,
+  Loader2,
 } from "lucide-react";
 
 export const STORAGE_KEY_TEMPLATE = "integrar_whatsapp_cobranca_template";
 export const STORAGE_KEY_PIX = "integrar_whatsapp_pix";
 export const STORAGE_KEY_CLINICA = "integrar_whatsapp_clinica";
+export const WHATSAPP_CONFIG_QUERY_KEY = ["whatsapp-config"];
+export const WHATSAPP_CONFIG_EVENT = "integrar_whatsapp_config_changed";
 
 export const DEFAULT_WHATSAPP_BILLING_TEMPLATE = `Olá, {responsavel}! Gostaríamos de lembrar do pagamento referente aos atendimentos de {mes} de *{paciente}* no valor total de *{valor}*.{resumo}
 
@@ -42,7 +47,7 @@ Nosso pix: {pix}
 
 Agradecemos a atenção! *{clinica}*`;
 
-export const DEFAULT_WHATSAPP_PIX = "54.747.611/0001-27";
+export const DEFAULT_WHATSAPP_PIX = "59.153.399/0001-93";
 export const DEFAULT_WHATSAPP_CLINICA = "Integrar";
 
 export interface StoredWhatsAppConfig {
@@ -75,10 +80,98 @@ export function saveStoredWhatsAppConfig(
   clinica: string
 ) {
   if (typeof window !== "undefined") {
-    window.localStorage.setItem(STORAGE_KEY_TEMPLATE, template.trim());
-    window.localStorage.setItem(STORAGE_KEY_PIX, pix.trim());
-    window.localStorage.setItem(STORAGE_KEY_CLINICA, clinica.trim());
+    const cleanTemplate = template.trim();
+    const cleanPix = pix.trim();
+    const cleanClinica = clinica.trim();
+
+    window.localStorage.setItem(STORAGE_KEY_TEMPLATE, cleanTemplate);
+    window.localStorage.setItem(STORAGE_KEY_PIX, cleanPix);
+    window.localStorage.setItem(STORAGE_KEY_CLINICA, cleanClinica);
+
+    window.dispatchEvent(
+      new CustomEvent(WHATSAPP_CONFIG_EVENT, {
+        detail: { template: cleanTemplate, pix: cleanPix, clinica: cleanClinica },
+      })
+    );
   }
+}
+
+export async function fetchWhatsAppConfig(): Promise<StoredWhatsAppConfig> {
+  const local = getStoredWhatsAppConfig();
+  try {
+    const { data, error } = await supabase
+      .from("whatsapp_config")
+      .select("template, pix, clinica")
+      .eq("id", "default")
+      .maybeSingle();
+
+    if (error) {
+      // Table may not exist yet or offline, fallback to local
+      console.warn("[WhatsAppConfig] Failed to fetch from Supabase, using local fallback:", error.message);
+      return local;
+    }
+
+    if (data) {
+      const config: StoredWhatsAppConfig = {
+        template: data.template || local.template || DEFAULT_WHATSAPP_BILLING_TEMPLATE,
+        pix: data.pix || local.pix || DEFAULT_WHATSAPP_PIX,
+        clinica: data.clinica || local.clinica || DEFAULT_WHATSAPP_CLINICA,
+      };
+
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(STORAGE_KEY_TEMPLATE, config.template);
+        window.localStorage.setItem(STORAGE_KEY_PIX, config.pix);
+        window.localStorage.setItem(STORAGE_KEY_CLINICA, config.clinica);
+      }
+      return config;
+    }
+  } catch (err) {
+    console.warn("[WhatsAppConfig] Exception fetching config:", err);
+  }
+  return local;
+}
+
+export async function saveWhatsAppConfigCloud(
+  template: string,
+  pix: string,
+  clinica: string
+): Promise<{ success: boolean; cloudSynced: boolean; error?: string }> {
+  const cleanTemplate = template.trim();
+  const cleanPix = pix.trim();
+  const cleanClinica = clinica.trim();
+
+  // 1. Immediately update local storage and notify current window
+  saveStoredWhatsAppConfig(cleanTemplate, cleanPix, cleanClinica);
+
+  // 2. Persist to Supabase for multi-device synchronization (Mobile, Desktop, Tablets)
+  try {
+    const { error } = await supabase.from("whatsapp_config").upsert({
+      id: "default",
+      template: cleanTemplate,
+      pix: cleanPix,
+      clinica: cleanClinica,
+      updated_at: new Date().toISOString(),
+    });
+
+    if (error) {
+      console.warn("[WhatsAppConfig] Cloud sync error:", error.message);
+      return { success: true, cloudSynced: false, error: error.message };
+    }
+    return { success: true, cloudSynced: true };
+  } catch (err: any) {
+    console.warn("[WhatsAppConfig] Exception during cloud sync:", err);
+    return { success: true, cloudSynced: false, error: err?.message || String(err) };
+  }
+}
+
+export function useWhatsAppConfig() {
+  return useQuery<StoredWhatsAppConfig>({
+    queryKey: WHATSAPP_CONFIG_QUERY_KEY,
+    queryFn: fetchWhatsAppConfig,
+    initialData: getStoredWhatsAppConfig,
+    staleTime: 1000 * 60 * 2, // 2 minutes
+    refetchOnWindowFocus: true,
+  });
 }
 
 export function formatPhoneForDisplay(rawPhone: string) {
@@ -194,6 +287,7 @@ export function WhatsAppBillingDialog({
   allResponsibles = [],
   onOpenTemplateConfig,
 }: WhatsAppBillingDialogProps) {
+  const { data: config = getStoredWhatsAppConfig() } = useWhatsAppConfig();
   const [selectedRespId, setSelectedRespId] = useState<string>("");
   const [currentRespName, setCurrentRespName] = useState<string>(responsavelNome);
   const [currentParentesco, setCurrentParentesco] = useState<string | undefined>(
@@ -202,27 +296,30 @@ export function WhatsAppBillingDialog({
   const [phoneInput, setPhoneInput] = useState<string>(telefone);
   const [messageText, setMessageText] = useState<string>("");
 
-  const generateMessage = (respName: string) => {
-    const config = getStoredWhatsAppConfig();
-    return buildWhatsAppBillingMessage({
-      template: config.template,
-      responsavelNome: respName,
-      pacienteNome,
-      mesRef,
-      totalPendente,
-      summaryLines,
-      pixKey: config.pix,
-      clinicName: config.clinica,
-    });
-  };
+  const generateMessage = useCallback(
+    (respName: string, activeConfig?: StoredWhatsAppConfig) => {
+      const cfg = activeConfig || config;
+      return buildWhatsAppBillingMessage({
+        template: cfg.template,
+        responsavelNome: respName,
+        pacienteNome,
+        mesRef,
+        totalPendente,
+        summaryLines,
+        pixKey: cfg.pix,
+        clinicName: cfg.clinica,
+      });
+    },
+    [config, pacienteNome, mesRef, totalPendente, summaryLines]
+  );
 
-  // Sync state whenever the dialog opens with new patient data
+  // Sync state whenever the dialog opens with patient data or new config
   useEffect(() => {
     if (open) {
       setCurrentRespName(responsavelNome);
       setCurrentParentesco(responsavelParentesco);
       setPhoneInput(formatPhoneForDisplay(telefone));
-      setMessageText(generateMessage(responsavelNome));
+      setMessageText(generateMessage(responsavelNome, config));
 
       if (allResponsibles.length > 0) {
         const found =
@@ -233,7 +330,31 @@ export function WhatsAppBillingDialog({
         }
       }
     }
-  }, [open, responsavelNome, responsavelParentesco, telefone, pacienteNome, mesRef, totalPendente]);
+  }, [
+    open,
+    responsavelNome,
+    responsavelParentesco,
+    telefone,
+    pacienteNome,
+    mesRef,
+    totalPendente,
+    config,
+    generateMessage,
+  ]);
+
+  // Listen for config changes saved on the current device to immediately update the draft
+  useEffect(() => {
+    const handleConfigChange = (e: Event) => {
+      const customEvent = e as CustomEvent<StoredWhatsAppConfig>;
+      if (customEvent.detail) {
+        setMessageText(generateMessage(currentRespName, customEvent.detail));
+      }
+    };
+    window.addEventListener(WHATSAPP_CONFIG_EVENT, handleConfigChange);
+    return () => {
+      window.removeEventListener(WHATSAPP_CONFIG_EVENT, handleConfigChange);
+    };
+  }, [currentRespName, generateMessage]);
 
   const handleSelectResponsible = (respId: string) => {
     setSelectedRespId(respId);
@@ -243,13 +364,13 @@ export function WhatsAppBillingDialog({
       setCurrentParentesco(resp.parentesco || undefined);
       const phone = resp.whatsapp || resp.telefone || "";
       setPhoneInput(formatPhoneForDisplay(phone));
-      setMessageText(generateMessage(resp.nome));
+      setMessageText(generateMessage(resp.nome, config));
     }
   };
 
   const handleResetMessage = () => {
-    setMessageText(generateMessage(currentRespName));
-    toast.info("Texto restaurado a partir do modelo padrão.");
+    setMessageText(generateMessage(currentRespName, config));
+    toast.info("Texto restaurado a partir do modelo padrão sincronizado.");
   };
 
   const handleCopyMessage = async () => {
@@ -448,19 +569,21 @@ export function WhatsAppTemplateConfigDialog({
   onOpenChange,
   onSaved,
 }: WhatsAppTemplateConfigDialogProps) {
-  const [template, setTemplate] = useState<string>(DEFAULT_WHATSAPP_BILLING_TEMPLATE);
-  const [pix, setPix] = useState<string>(DEFAULT_WHATSAPP_PIX);
-  const [clinica, setClinica] = useState<string>(DEFAULT_WHATSAPP_CLINICA);
+  const queryClient = useQueryClient();
+  const { data: config = getStoredWhatsAppConfig() } = useWhatsAppConfig();
+  const [template, setTemplate] = useState<string>(config.template);
+  const [pix, setPix] = useState<string>(config.pix);
+  const [clinica, setClinica] = useState<string>(config.clinica);
+  const [saving, setSaving] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (open) {
-      const config = getStoredWhatsAppConfig();
       setTemplate(config.template);
       setPix(config.pix);
       setClinica(config.clinica);
     }
-  }, [open]);
+  }, [open, config]);
 
   const insertVariable = (varTag: string) => {
     const el = textareaRef.current;
@@ -480,19 +603,31 @@ export function WhatsAppTemplateConfigDialog({
   };
 
   const handleResetDefault = () => {
-    if (confirm("Deseja restaurar o modelo original de fábrica?")) {
+    if (confirm("Deseja restaurar o modelo original padrão?")) {
       setTemplate(DEFAULT_WHATSAPP_BILLING_TEMPLATE);
       setPix(DEFAULT_WHATSAPP_PIX);
       setClinica(DEFAULT_WHATSAPP_CLINICA);
-      toast.info("Modelo original restaurado. Clique em 'Salvar Modelo' para confirmar.");
+      toast.info("Modelo original restaurado. Clique em 'Salvar Modelo' para aplicar a todos os dispositivos.");
     }
   };
 
-  const handleSave = () => {
-    saveStoredWhatsAppConfig(template, pix, clinica);
-    toast.success("Modelo de mensagem salvo com sucesso!");
-    if (onSaved) onSaved();
-    onOpenChange(false);
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const res = await saveWhatsAppConfigCloud(template, pix, clinica);
+      await queryClient.invalidateQueries({ queryKey: WHATSAPP_CONFIG_QUERY_KEY });
+      if (res.cloudSynced) {
+        toast.success("Modelo de mensagem salvo e sincronizado em todos os dispositivos!");
+      } else {
+        toast.success("Modelo salvo localmente! (Para sincronizar em nuvem, execute a migration whatsapp_config no Supabase)");
+      }
+      if (onSaved) onSaved();
+      onOpenChange(false);
+    } catch (err: any) {
+      toast.error("Erro ao salvar modelo: " + (err?.message || "Erro desconhecido"));
+    } finally {
+      setSaving(false);
+    }
   };
 
   // Sample data for preview
@@ -530,7 +665,7 @@ export function WhatsAppTemplateConfigDialog({
                 Configurar Modelo de Mensagem WhatsApp
               </DialogTitle>
               <DialogDescription className="text-xs">
-                Personalize o modelo padrão usado ao enviar cobranças pelo WhatsApp.
+                Personalize o modelo padrão usado ao enviar cobranças pelo WhatsApp. As alterações são sincronizadas entre computador, celular e outros dispositivos.
               </DialogDescription>
             </div>
           </div>
@@ -544,7 +679,7 @@ export function WhatsAppTemplateConfigDialog({
               <Input
                 value={pix}
                 onChange={(e) => setPix(e.target.value)}
-                placeholder="Ex: 54.747.611/0001-27"
+                placeholder="Ex: 59.153.399/0001-93"
                 className="h-9 text-xs"
               />
             </div>
@@ -622,16 +757,26 @@ export function WhatsAppTemplateConfigDialog({
             <Button
               type="button"
               variant="outline"
+              disabled={saving}
               onClick={() => onOpenChange(false)}
             >
               Cancelar
             </Button>
             <Button
               type="button"
+              disabled={saving}
               onClick={handleSave}
-              className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
+              className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold cursor-pointer"
             >
-              <Save className="h-4 w-4" /> Salvar Modelo
+              {saving ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" /> Salvando...
+                </>
+              ) : (
+                <>
+                  <Save className="h-4 w-4" /> Salvar Modelo
+                </>
+              )}
             </Button>
           </div>
         </DialogFooter>
